@@ -43,13 +43,19 @@ else
 fi
 
 swift build -c release
-BIN="$(swift build -c release --show-bin-path)/Unmouse"
+BIN_DIR="$(swift build -c release --show-bin-path)"
+BIN="$BIN_DIR/Unmouse"
 
 rm -rf "$DIST"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Unmouse"
 cp "$ROOT/Support/Info.plist" "$APP/Contents/Info.plist"
 cp -R "$ROOT/configs-example" "$APP/Contents/Resources/configs-example"
+for bundle in Unmouse_Unmouse.bundle Unmouse_UnmouseCore.bundle; do
+  if [[ -d "$BIN_DIR/$bundle" ]]; then
+    cp -R "$BIN_DIR/$bundle" "$APP/Contents/Resources/"
+  fi
+done
 
 codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
 

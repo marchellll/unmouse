@@ -134,17 +134,19 @@ final class AppModel {
     }
 
     private func loadBundledDefault() throws -> String {
+        // Prefer Bundle.main — SPM's Bundle.module fatalErrors if the resource
+        // bundle was not copied into Unmouse.app/Contents/Resources.
         let url =
-            Bundle.module.url(forResource: "default.config", withExtension: "toml", subdirectory: "configs-example")
-            ?? Bundle.main.url(forResource: "default.config", withExtension: "toml", subdirectory: "configs-example")
-        guard let url else { throw ConfigError.parse("missing default.config.toml") }
+            Bundle.main.url(forResource: "default.config", withExtension: "toml", subdirectory: "configs-example")
+            ?? Bundle.main.url(forResource: "default.config", withExtension: "toml")
+        guard let url else { throw ConfigError.parse("missing default.config.toml in app Resources") }
         return try String(contentsOf: url, encoding: .utf8)
     }
 
     private func loadPresets() {
         let urls =
-            Bundle.module.urls(forResourcesWithExtension: "toml", subdirectory: "configs-example")
-            ?? Bundle.main.urls(forResourcesWithExtension: "toml", subdirectory: "configs-example")
+            Bundle.main.urls(forResourcesWithExtension: "toml", subdirectory: "configs-example")
+            ?? Bundle.main.urls(forResourcesWithExtension: "toml", subdirectory: nil)
             ?? []
         presets = urls.map {
             PresetItem(name: $0.deletingPathExtension().lastPathComponent, url: $0)
