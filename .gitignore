@@ -9,3 +9,23 @@ Unmouse.app
 dist/
 *.zip
 .vscode/
+
+# Signing & credentials (never commit)
+*.p12
+*.p8
+*.pem
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+*.key
+.env
+.env.*
+!.env.example
+AuthKey_*.p8
+credentials.json
+secrets/
+notarize.env
+signing.env
+*.keychain
+*.keychain-db

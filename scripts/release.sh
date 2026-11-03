@@ -9,18 +9,37 @@ DIST="$ROOT/dist"
 APP="$DIST/Unmouse.app"
 ZIP="$DIST/Unmouse-$VERSION.zip"
 
-IDENTITY_DEV="Apple Development: Marchell Imanuel (DY59WP772P)"
-IDENTITY_ID=$(security find-identity -p codesigning -v | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+# Optional local config (gitignored): signing.env with UNMOUSE_* vars only.
+# Never put passwords or .p12 paths into the repo.
+if [[ -f "$ROOT/signing.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$ROOT/signing.env"
+fi
 
-if [[ -z "${IDENTITY_ID:-}" ]]; then
-  echo "Missing Developer ID Application certificate for team DY59WP772P."
-  echo "Create one in Xcode → Settings → Accounts → Manage Certificates."
-  echo "Falling back to Apple Development for a local signed build only (not for notarization)."
-  IDENTITY="$IDENTITY_DEV"
-  NOTARIZE=0
-else
+NOTARY_PROFILE="${UNMOUSE_NOTARY_PROFILE:-notarytool}"
+
+IDENTITY_DEV="${UNMOUSE_CODESIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY_DEV" ]]; then
+  IDENTITY_DEV=$(security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Apple Development/ {print $2; exit}')
+fi
+
+IDENTITY_ID="${UNMOUSE_DEVELOPER_ID_IDENTITY:-}"
+if [[ -z "$IDENTITY_ID" ]]; then
+  IDENTITY_ID=$(security find-identity -p codesigning -v 2>/dev/null | awk -F'"' '/Developer ID Application/ {print $2; exit}')
+fi
+
+if [[ -n "$IDENTITY_ID" ]]; then
   IDENTITY="$IDENTITY_ID"
   NOTARIZE=1
+else
+  if [[ -z "$IDENTITY_DEV" ]]; then
+    echo "No codesigning identity found. Set UNMOUSE_DEVELOPER_ID_IDENTITY or UNMOUSE_CODESIGN_IDENTITY."
+    exit 1
+  fi
+  echo "No Developer ID Application identity in the keychain."
+  echo "Falling back to Apple Development (local only; not for notarization)."
+  IDENTITY="$IDENTITY_DEV"
+  NOTARIZE=0
 fi
 
 swift build -c release
@@ -35,13 +54,14 @@ cp -R "$ROOT/configs-example" "$APP/Contents/Resources/configs-example"
 codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
 
 if [[ "$NOTARIZE" -eq 1 ]]; then
-  if ! xcrun notarytool history --keychain-profile "notarytool" >/dev/null 2>&1; then
-    echo "Missing notarytool keychain profile 'notarytool'."
-    echo "Run: xcrun notarytool store-credentials notarytool --apple-id EMAIL --team-id DY59WP772P --password APP_SPECIFIC_PASSWORD"
+  if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+    echo "Missing notarytool keychain profile '$NOTARY_PROFILE'."
+    echo "Store credentials in the keychain (not in git), e.g.:"
+    echo "  xcrun notarytool store-credentials $NOTARY_PROFILE"
     exit 1
   fi
   ditto -c -k --keepParent "$APP" "$ZIP"
-  xcrun notarytool submit "$ZIP" --keychain-profile "notarytool" --wait
+  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
   xcrun stapler staple "$APP"
   rm -f "$ZIP"
   ditto -c -k --keepParent "$APP" "$ZIP"
