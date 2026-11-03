@@ -17,7 +17,7 @@ struct AccessibilityHintSource: HintSource {
               let focusedApp
         else { return [] }
 
-        let appEl = unsafeBitCast(focusedApp, to: AXUIElement.self)
+        let appEl = unsafeDowncast(focusedApp as AnyObject, to: AXUIElement.self)
         AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 
         var window: CFTypeRef?
@@ -25,7 +25,7 @@ struct AccessibilityHintSource: HintSource {
         if AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &window) == .success,
            let window
         {
-            root = unsafeBitCast(window, to: AXUIElement.self)
+            root = unsafeDowncast(window as AnyObject, to: AXUIElement.self)
         } else {
             root = appEl
         }

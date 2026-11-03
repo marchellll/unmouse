@@ -1,6 +1,10 @@
 [input]
 karabiner = true       # use the virtual keyboard when it is present, including after a later install
 
+[log]
+level = "none"         # none | error | warn | info | debug
+
+
 [grid]
 rows = 5
 cols = 4

@@ -114,11 +114,15 @@ final class AppModel {
             if errors.isEmpty {
                 config = loaded
                 configError = nil
+                UnmouseLog.setLevel(loaded.log.level)
+                UnmouseLog.info("config loaded")
             } else {
                 configError = errors.map(\.description).joined(separator: "; ")
+                UnmouseLog.error("config invalid: \(configError ?? "")")
             }
         } catch {
             configError = String(describing: error)
+            UnmouseLog.error("config load failed: \(configError ?? "")")
         }
         updateKarabiner()
     }
@@ -670,7 +674,7 @@ final class AppModel {
     }
 
     func skipTutorial() {
-        tutorial?.handle(.skipped)
+        _ = tutorial?.handle(.skipped)
         finishTutorialSession()
     }
 

@@ -14,6 +14,11 @@ public struct InputConfig: Codable, Sendable, Equatable {
     public init(karabiner: Bool = true) { self.karabiner = karabiner }
 }
 
+public struct LogConfig: Codable, Sendable, Equatable {
+    public var level: LogLevel
+    public init(level: LogLevel = .none) { self.level = level }
+}
+
 public struct GridConfig: Codable, Sendable, Equatable {
     public var rows: Int
     public var cols: Int
@@ -320,6 +325,7 @@ public struct BindingsConfig: Codable, Sendable, Equatable {
 
 public struct AppConfig: Codable, Sendable, Equatable {
     public var input: InputConfig
+    public var log: LogConfig
     public var grid: GridConfig
     public var free: FreeConfig
     public var hint: HintConfig
@@ -328,6 +334,7 @@ public struct AppConfig: Codable, Sendable, Equatable {
 
     public init(
         input: InputConfig = .init(),
+        log: LogConfig = .init(),
         grid: GridConfig = .init(),
         free: FreeConfig = .init(),
         hint: HintConfig = .init(),
@@ -335,6 +342,7 @@ public struct AppConfig: Codable, Sendable, Equatable {
         bindings: BindingsConfig = .init()
     ) {
         self.input = input
+        self.log = log
         self.grid = grid
         self.free = free
         self.hint = hint
@@ -343,6 +351,21 @@ public struct AppConfig: Codable, Sendable, Equatable {
     }
 
     public static let `default` = AppConfig()
+
+    enum CodingKeys: String, CodingKey {
+        case input, log, grid, free, hint, colors, bindings
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        input = try c.decodeIfPresent(InputConfig.self, forKey: .input) ?? .init()
+        log = try c.decodeIfPresent(LogConfig.self, forKey: .log) ?? .init()
+        grid = try c.decode(GridConfig.self, forKey: .grid)
+        free = try c.decode(FreeConfig.self, forKey: .free)
+        hint = try c.decodeIfPresent(HintConfig.self, forKey: .hint) ?? .init()
+        colors = try c.decode(ColorsConfig.self, forKey: .colors)
+        bindings = try c.decode(BindingsConfig.self, forKey: .bindings)
+    }
 }
 
 public enum ConfigError: Error, Equatable, CustomStringConvertible {

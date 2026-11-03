@@ -108,20 +108,26 @@ final class WalkthroughWindowController {
     static let shared = WalkthroughWindowController()
     private var window: NSWindow?
 
+    /// Show at most one walkthrough window. Safe to call from a poll timer.
     func show(model: AppModel) {
-        let hosting = NSHostingController(rootView: WalkthroughView(model: model))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Unmouse Setup"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 420, height: 280))
-        window.center()
-        self.window = window
-        window.makeKeyAndOrderFront(nil)
+        if let window, window.isVisible {
+            return
+        }
+        if window == nil {
+            let hosting = NSHostingController(rootView: WalkthroughView(model: model))
+            let window = NSWindow(contentViewController: hosting)
+            window.title = "Unmouse Setup"
+            window.styleMask = [.titled, .closable]
+            window.setContentSize(NSSize(width: 420, height: 280))
+            window.center()
+            window.isReleasedWhenClosed = false
+            self.window = window
+        }
+        window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func close() {
         window?.orderOut(nil)
-        window = nil
     }
 }
