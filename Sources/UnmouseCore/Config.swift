@@ -133,10 +133,10 @@ public struct GridConfig: Codable, Sendable, Equatable {
     }
 
     public init(
-        rows: Int = 5,
-        cols: Int = 4,
-        subRows: Int = 3,
-        subCols: Int = 3,
+        rows: Int = 10,
+        cols: Int = 10,
+        subRows: Int = 7,
+        subCols: Int = 7,
         subFontSize: Double = 16,
         subLabel: String = "#FFFFFF",
         subGlow: String = "#FFFFFF",
@@ -170,8 +170,8 @@ public struct GridConfig: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         rows = try c.decode(Int.self, forKey: .rows)
         cols = try c.decode(Int.self, forKey: .cols)
-        subRows = max(1, try c.decodeIfPresent(Int.self, forKey: .subRows) ?? 3)
-        subCols = max(1, try c.decodeIfPresent(Int.self, forKey: .subCols) ?? 3)
+        subRows = max(1, try c.decodeIfPresent(Int.self, forKey: .subRows) ?? 7)
+        subCols = max(1, try c.decodeIfPresent(Int.self, forKey: .subCols) ?? 7)
         subFontSize = max(1, Self.decodeNumber(c, forKey: .subFontSize) ?? 16)
         subLabel = try c.decodeIfPresent(String.self, forKey: .subLabel) ?? "#FFFFFF"
         subGlow = try c.decodeIfPresent(String.self, forKey: .subGlow) ?? "#FFFFFF"

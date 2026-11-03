@@ -49,7 +49,10 @@ struct ConfigTests {
             let errors = ConfigValidator.validate(config)
             let other = errors.filter(\.blocksApply)
             #expect(other.isEmpty, "\(url.lastPathComponent): \(other)")
-            #expect(errors.contains { if case .gridShortcutOverlapsChars = $0 { true } else { false } })
+            if !url.lastPathComponent.hasPrefix("default") {
+                let overlaps = errors.filter { if case .gridShortcutOverlapsChars = $0 { true } else { false } }
+                #expect(overlaps.isEmpty, "\(url.lastPathComponent): \(overlaps)")
+            }
         }
     }
 

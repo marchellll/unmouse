@@ -191,9 +191,10 @@ final class GridLinesView: NSView {
             let preferred = fontSize ?? min(cellW, cellH) * 0.32
             let size = max(1, min(preferred, fitted))
             let stroke = min(max(0, outlineWidth), size * 0.18)
-            let height = size * 1.35 * CGFloat(lineCount)
-            let pad = max(stroke, glowRadius)
             let font = Self.nsFont(name: fontName, size: size)
+            // The glow used to grow the layer upward. Text stays at the top of a CATextLayer, so that shoved the letters above the cell center.
+            let lineHeight = font.ascender - font.descender + max(0, font.leading)
+            let textHeight = lineHeight * CGFloat(lineCount)
             text.isHidden = false
             text.masksToBounds = false
             text.isWrapped = lineCount > 1
@@ -216,10 +217,10 @@ final class GridLinesView: NSView {
             }
             text.setNeedsDisplay()
             text.frame = CGRect(
-                x: cell.minX - screen.origin.x - pad,
-                y: cell.midY - screen.origin.y - height / 2 - pad,
-                width: cell.width + pad * 2,
-                height: height + pad * 2
+                x: cell.minX - screen.origin.x,
+                y: cell.midY - screen.origin.y - textHeight / 2,
+                width: cell.width,
+                height: textHeight
             )
         }
         if let cell = state.targetFrame {

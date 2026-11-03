@@ -8,10 +8,10 @@ level = "none"         # none | error | warn | info | debug
 
 
 [grid]
-rows = 5
-cols = 4
-sub_rows = 3       # second grid, and the third when depth is 3
-sub_cols = 3
+rows = 10
+cols = 10
+sub_rows = 7       # second grid, and the third when depth is 3
+sub_cols = 7
 sub_font_size = 16
 sub_label = "#FFFFFF"
 sub_glow = "#FFFFFF"
