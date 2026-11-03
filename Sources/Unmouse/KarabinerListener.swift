@@ -7,9 +7,10 @@ final class KarabinerListener {
     private var manager: IOHIDManager?
     var onKey: ((KeyKind, Bool) -> Void)?
     private(set) var isActive = false
+    var isRunning: Bool { manager != nil }
 
     func startIfAvailable() -> Bool {
-        stop()
+        if manager != nil { return true }
         let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
         let matching: [[String: Any]] = [
             [
@@ -34,6 +35,8 @@ final class KarabinerListener {
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         let open = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard open == kIOReturnSuccess else {
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             return false
         }
         self.manager = manager
@@ -74,6 +77,9 @@ final class KarabinerListener {
         guard usagePage == 0x07 else { return } // keyboard/keypad
         let pressed = IOHIDValueGetIntegerValue(value) != 0
         if let kind = KeyKind.fromHIDUsage(usage) {
+            // Modifiers are owned by the CGEvent tap (alone-tap detection).
+            // Emitting them here races the tap and drops ⌘/⌥ taps intermittently.
+            if kind.isModifier { return }
             onKey?(kind, pressed)
         }
     }
@@ -142,19 +148,6 @@ extension KeyKind {
 }
 
 enum KarabinerPresence {
-    static func virtualKeyboardPresent() -> Bool {
-        let manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
-        IOHIDManagerSetDeviceMatching(manager, nil)
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        _ = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-        defer {
-            IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
-        }
-        guard let devices = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return false }
-        return devices.contains { isKarabinerVirtualKeyboard($0) }
-    }
-
     static func cliPresent() -> Bool {
         FileManager.default.isExecutableFile(
             atPath: "/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"

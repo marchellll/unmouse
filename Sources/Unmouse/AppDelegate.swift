@@ -12,21 +12,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model = AppModel()
         model.start()
 
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // squareLength — never assign button.frame; that detaches the item from the
+        // menu bar and makes the popover anchor float mid-screen.
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
+            button.image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in true }
+            button.image?.isTemplate = true
             let hosting = NSHostingView(rootView: StatusIconView(model: model))
-            hosting.frame = NSRect(x: 0, y: 0, width: 22, height: 22)
+            hosting.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(hosting)
-            button.frame = hosting.frame
+            NSLayoutConstraint.activate([
+                hosting.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+                hosting.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+                hosting.widthAnchor.constraint(equalToConstant: 18),
+                hosting.heightAnchor.constraint(equalToConstant: 18),
+            ])
             button.action = #selector(togglePopover(_:))
             button.target = self
         }
         statusItem = item
 
         let pop = NSPopover()
-        pop.contentSize = NSSize(width: 280, height: 420)
         pop.behavior = .transient
-        pop.contentViewController = NSHostingController(rootView: PopoverView(model: model))
+        let host = NSHostingController(rootView: PopoverView(model: model))
+        host.sizingOptions = [.intrinsicContentSize]
+        pop.contentViewController = host
         popover = pop
 
         coachTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
@@ -44,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.performClose(sender)
         } else {
             model.refreshPermissions()
+            // minY = below the status button (toward the desktop).
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }

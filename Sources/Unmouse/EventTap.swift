@@ -7,13 +7,17 @@ final class EventTapController {
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     var onKey: ((KeyKind, CGEventFlags, Bool, Bool) -> Bool)?
+    private var alone = AloneTapTracker()
+    private var maxTapMs: UInt64 = 200
 
-    /// Tracks modifiers pressed alone for tap detection.
-    private var aloneCandidate: KeyKind?
-    private var aloneInterrupted = false
+    func setMaxTapMilliseconds(_ ms: UInt64) {
+        maxTapMs = max(1, ms)
+        alone.setMaxTapMilliseconds(maxTapMs)
+    }
 
     func start() -> Bool {
         stop()
+        alone = AloneTapTracker(maxTapMilliseconds: maxTapMs)
         let mask =
             (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
@@ -54,6 +58,7 @@ final class EventTapController {
         }
         runLoopSource = nil
         tap = nil
+        alone = AloneTapTracker(maxTapMilliseconds: maxTapMs)
     }
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -64,6 +69,9 @@ final class EventTapController {
         if PointerController.isOurs(event) {
             return Unmanaged.passUnretained(event)
         }
+        if let tap, !CGEvent.tapIsEnabled(tap: tap) {
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
@@ -71,8 +79,7 @@ final class EventTapController {
 
         switch type {
         case .keyDown:
-            aloneInterrupted = true
-            aloneCandidate = nil
+            _ = alone.handle(.otherKey)
             guard let kind = KeyCodes.kind(from: keyCode) else {
                 return Unmanaged.passUnretained(event)
             }
@@ -83,7 +90,7 @@ final class EventTapController {
             }
             swallow = onKey?(kind, flags, false, false) ?? false
         case .flagsChanged:
-            swallow = handleFlagsChanged(keyCode: keyCode, flags: flags, event: event)
+            swallow = handleFlagsChanged(keyCode: keyCode, flags: flags, nowNanos: DispatchTime.now().uptimeNanoseconds)
         default:
             return Unmanaged.passUnretained(event)
         }
@@ -91,37 +98,73 @@ final class EventTapController {
         return swallow ? nil : Unmanaged.passUnretained(event)
     }
 
-    private func handleFlagsChanged(keyCode: CGKeyCode, flags: CGEventFlags, event: CGEvent) -> Bool {
-        guard let kind = KeyCodes.kind(from: keyCode) else { return false }
-
-        let isDown: Bool = {
-            switch kind {
-            case .commandLeft, .commandRight: return flags.contains(.maskCommand)
-            case .optionLeft, .optionRight: return flags.contains(.maskAlternate)
-            case .shiftLeft, .shiftRight: return flags.contains(.maskShift)
-            case .controlLeft, .controlRight: return flags.contains(.maskControl)
-            case .fn: return flags.contains(.maskSecondaryFn)
-            default: return false
-            }
-        }()
-
-        // Track alone taps: press starts candidate, other key clears, release alone fires tap
-        if isDown {
-            if aloneCandidate == nil {
-                aloneCandidate = kind
-                aloneInterrupted = false
-            }
+    private func handleFlagsChanged(keyCode: CGKeyCode, flags: CGEventFlags, nowNanos: UInt64) -> Bool {
+        guard let kind = KeyCodes.kind(from: keyCode), kind.isModifier else { return false }
+        let isDown = Self.modifierPressed(kind, flags: flags)
+        let token = kind.configToken
+        switch alone.handle(.modifier(token: token, down: isDown, nowNanos: nowNanos)) {
+        case .ignored:
+            return false
+        case .down:
             _ = onKey?(kind, flags, true, false)
             return false
-        } else {
-            let wasAlone = aloneCandidate == kind && !aloneInterrupted
-            aloneCandidate = nil
-            let handled = onKey?(kind, flags, false, wasAlone) ?? false
-            return handled
+        case .up(let wasAlone):
+            // Never swallow. A missing key-up leaves Option, Command, Control, or Shift held in every app.
+            _ = onKey?(kind, flags, false, wasAlone)
+            return false
+        }
+    }
+
+    private static func modifierPressed(_ kind: KeyKind, flags: CGEventFlags) -> Bool {
+        let raw = flags.rawValue
+        switch kind {
+        case .commandLeft:
+            if raw & NX_DEVICELCMDKEYMASK != 0 { return true }
+            if raw & NX_DEVICERCMDKEYMASK != 0 { return false }
+            return flags.contains(.maskCommand)
+        case .commandRight:
+            if raw & NX_DEVICERCMDKEYMASK != 0 { return true }
+            if raw & NX_DEVICELCMDKEYMASK != 0 { return false }
+            return flags.contains(.maskCommand)
+        case .optionLeft:
+            if raw & NX_DEVICELALTKEYMASK != 0 { return true }
+            if raw & NX_DEVICERALTKEYMASK != 0 { return false }
+            return flags.contains(.maskAlternate)
+        case .optionRight:
+            if raw & NX_DEVICERALTKEYMASK != 0 { return true }
+            if raw & NX_DEVICELALTKEYMASK != 0 { return false }
+            return flags.contains(.maskAlternate)
+        case .shiftLeft:
+            if raw & NX_DEVICELSHIFTKEYMASK != 0 { return true }
+            if raw & NX_DEVICERSHIFTKEYMASK != 0 { return false }
+            return flags.contains(.maskShift)
+        case .shiftRight:
+            if raw & NX_DEVICERSHIFTKEYMASK != 0 { return true }
+            if raw & NX_DEVICELSHIFTKEYMASK != 0 { return false }
+            return flags.contains(.maskShift)
+        case .controlLeft:
+            if raw & NX_DEVICELCTLKEYMASK != 0 { return true }
+            if raw & NX_DEVICERCTLKEYMASK != 0 { return false }
+            return flags.contains(.maskControl)
+        case .controlRight:
+            if raw & NX_DEVICERCTLKEYMASK != 0 { return true }
+            if raw & NX_DEVICELCTLKEYMASK != 0 { return false }
+            return flags.contains(.maskControl)
+        case .command: return flags.contains(.maskCommand)
+        case .option: return flags.contains(.maskAlternate)
+        case .shift: return flags.contains(.maskShift)
+        case .control: return flags.contains(.maskControl)
+        case .fn: return flags.contains(.maskSecondaryFn)
+        default: return false
         }
     }
 }
 
-// NX device masks for distinguishing left/right command when available
-private let NX_DEVICELCMDKEYMASK: UInt32 = 0x00000008
-private let NX_DEVICERCMDKEYMASK: UInt32 = 0x00000010
+private let NX_DEVICELCTLKEYMASK: UInt64 = 0x00000001
+private let NX_DEVICERCTLKEYMASK: UInt64 = 0x00000002
+private let NX_DEVICELSHIFTKEYMASK: UInt64 = 0x00000004
+private let NX_DEVICERSHIFTKEYMASK: UInt64 = 0x00000008
+private let NX_DEVICELCMDKEYMASK: UInt64 = 0x00000010
+private let NX_DEVICERCMDKEYMASK: UInt64 = 0x00000020
+private let NX_DEVICELALTKEYMASK: UInt64 = 0x00000040
+private let NX_DEVICERALTKEYMASK: UInt64 = 0x00000080

@@ -1,3 +1,4 @@
+import BoundaryLabeling
 import CoreGraphics
 import Foundation
 
@@ -21,13 +22,23 @@ public struct HintBubble: Equatable, Sendable, Identifiable {
     public var bubbleFrame: CGRect
     public var targetPoint: CGPoint
     public var needsLeader: Bool
+    /// Orthogonal dog-leg polyline in AppKit screen coords.
+    public var leaderPath: [CGPoint]
 
-    public init(id: String, code: String, bubbleFrame: CGRect, targetPoint: CGPoint, needsLeader: Bool) {
+    public init(
+        id: String,
+        code: String,
+        bubbleFrame: CGRect,
+        targetPoint: CGPoint,
+        needsLeader: Bool,
+        leaderPath: [CGPoint] = []
+    ) {
         self.id = id
         self.code = code
         self.bubbleFrame = bubbleFrame
         self.targetPoint = targetPoint
         self.needsLeader = needsLeader
+        self.leaderPath = leaderPath
     }
 }
 
@@ -53,7 +64,6 @@ public enum HintCoder {
                     }
                 }
             }
-            // generate sequential codes
             for c in alphabet {
                 let s = String(c)
                 if !used.contains(s) {
@@ -75,8 +85,10 @@ public enum HintCoder {
 
         for target in targets {
             var t = target
-            let pref = target.title.first.map(String.init)
-            if let code = takeCode(preferred: pref) {
+            // Full title (filtered to charset), not only the first glyph — so
+            // "Save"/"Settings" can become "s"/"se" and Space can confirm "s".
+            let pref = String(target.title.lowercased().filter { alphabet.contains($0) })
+            if let code = takeCode(preferred: pref.isEmpty ? nil : pref) {
                 t.code = code
                 result.append(t)
             }
@@ -85,77 +97,64 @@ public enum HintCoder {
     }
 }
 
+/// Thin Unmouse adapter over the publishable `BoundaryLabeling` package.
 public enum HintLayout {
-    public static let bubbleSize = CGSize(width: 28, height: 20)
+    public static let bubbleSize = BoundaryLabelConfig.default.labelSize
     public static let minTargetSize: CGFloat = 24
+    public static let bubblePad = BoundaryLabelConfig.default.padding
+    public static let marginInset = BoundaryLabelConfig.default.marginInset
+    public static let gutter = BoundaryLabelConfig.default.gutter
 
     public static func layout(
         targets: [HintTarget],
         screenBounds: CGRect
     ) -> [HintBubble] {
-        var placed: [CGRect] = []
-        var bubbles: [HintBubble] = []
-
-        for target in targets {
-            let center = CGPoint(x: target.frame.midX, y: target.frame.midY)
-            var bubble = CGRect(
-                x: center.x - bubbleSize.width / 2,
-                y: center.y - bubbleSize.height / 2,
-                width: bubbleSize.width,
-                height: bubbleSize.height
-            )
-            let tooSmall = target.frame.width < minTargetSize || target.frame.height < minTargetSize
-            var needsLeader = tooSmall
-
-            if placed.contains(where: { $0.intersects(bubble) }) || tooSmall {
-                needsLeader = true
-                bubble = findFreeSpot(near: center, avoiding: placed, in: screenBounds) ?? bubble
-            }
-            placed.append(bubble)
-            bubbles.append(
-                HintBubble(
-                    id: target.id,
-                    code: target.code,
-                    bubbleFrame: bubble,
-                    targetPoint: center,
-                    needsLeader: needsLeader
-                )
+        let sites = targets.map {
+            LabelSite(
+                id: $0.id,
+                point: CGPoint(x: $0.frame.midX, y: $0.frame.midY),
+                bounds: $0.frame,
+                tag: $0.code
             )
         }
-        return bubbles
+        let placed = BoundaryLabeler.layout(
+            sites: sites,
+            bounds: screenBounds,
+            config: BoundaryLabelConfig(
+                labelSize: bubbleSize,
+                padding: bubblePad,
+                marginInset: marginInset,
+                gutter: gutter
+            )
+        )
+        return placed.map {
+            HintBubble(
+                id: $0.id,
+                code: $0.tag,
+                bubbleFrame: $0.frame,
+                targetPoint: $0.target,
+                needsLeader: !$0.leader.isEmpty,
+                leaderPath: $0.leader
+            )
+        }
     }
 
-    static func findFreeSpot(near: CGPoint, avoiding: [CGRect], in bounds: CGRect) -> CGRect? {
-        let offsets: [CGPoint] = [
-            CGPoint(x: 20, y: 20),
-            CGPoint(x: -20, y: 20),
-            CGPoint(x: 20, y: -20),
-            CGPoint(x: -20, y: -20),
-            CGPoint(x: 40, y: 0),
-            CGPoint(x: -40, y: 0),
-            CGPoint(x: 0, y: 40),
-            CGPoint(x: 0, y: -40),
-            CGPoint(x: 40, y: 40),
-            CGPoint(x: -40, y: -40),
-        ]
-        for off in offsets {
-            var r = CGRect(
-                x: near.x + off.x - bubbleSize.width / 2,
-                y: near.y + off.y - bubbleSize.height / 2,
-                width: bubbleSize.width,
-                height: bubbleSize.height
-            )
-            r = r.intersection(bounds.insetBy(dx: 2, dy: 2))
-            if r.width < bubbleSize.width * 0.5 { continue }
-            if avoiding.contains(where: { $0.intersects(r) }) { continue }
-            return CGRect(
-                x: r.minX,
-                y: r.minY,
-                width: bubbleSize.width,
-                height: bubbleSize.height
-            )
-        }
-        return nil
+    public static func crossingCount(_ bubbles: [HintBubble]) -> Int {
+        BoundaryLabeler.crossingCount(bubbles.map(asPlaced))
+    }
+
+    public static func crossingPairs(_ bubbles: [HintBubble]) -> [(String, String)] {
+        BoundaryLabeler.crossingPairs(bubbles.map(asPlaced))
+    }
+
+    private static func asPlaced(_ b: HintBubble) -> PlacedLabel {
+        PlacedLabel(
+            id: b.id,
+            tag: b.code,
+            frame: b.bubbleFrame,
+            target: b.targetPoint,
+            leader: b.leaderPath
+        )
     }
 }
 
@@ -186,6 +185,19 @@ public struct HintState: Equatable, Sendable {
             return .armed(matches[0])
         }
         return .narrowed
+    }
+
+    /// Arm the target whose code equals `typed` exactly — needed when a
+    /// single-char code shares a prefix with longer codes (space confirms it).
+    @discardableResult
+    public mutating func armExactMatch() -> Bool {
+        if let armedID, targets.contains(where: { $0.id == armedID }) {
+            return true
+        }
+        guard !typed.isEmpty else { return false }
+        guard let match = targets.first(where: { $0.code == typed }) else { return false }
+        armedID = match.id
+        return true
     }
 
     public mutating func backspace() {

@@ -14,13 +14,51 @@ struct HintTests {
         #expect(codes[0] == "a")
     }
 
-    @Test func leaderWhenCrowded() {
-        let targets = [
-            HintTarget(id: "1", title: "A", frame: CGRect(x: 0, y: 0, width: 10, height: 10), code: "a"),
-            HintTarget(id: "2", title: "B", frame: CGRect(x: 2, y: 2, width: 10, height: 10), code: "b"),
+    @Test func titlePrefixesShareStemForSpaceConfirm() {
+        // Full-title coding: first unique stem is 1 char, next keeps going → "s"/"se".
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "1", title: "Save", frame: .zero),
+                HintTarget(id: "2", title: "Settings", frame: .zero),
+            ],
+            chars: "qwesfghjkl"
+        )
+        #expect(coded.map(\.code) == ["s", "se"])
+        var state = HintState(targets: coded)
+        #expect(state.typeCharacter("s") == .narrowed)
+        #expect(state.armedID == nil)
+        let armed = state.armExactMatch()
+        #expect(armed)
+        #expect(state.armedID == "1")
+    }
+
+    @Test func adapterMapsBoundaryLabeling() {
+        // Far apart → in-situ, no leaders.
+        let isolated = [
+            HintTarget(id: "1", title: "A", frame: CGRect(x: 40, y: 100, width: 48, height: 32), code: "a"),
+            HintTarget(id: "2", title: "B", frame: CGRect(x: 500, y: 120, width: 48, height: 32), code: "b"),
         ]
-        let bubbles = HintLayout.layout(targets: targets, screenBounds: CGRect(x: 0, y: 0, width: 400, height: 400))
-        #expect(bubbles.contains { $0.needsLeader })
+        let alone = HintLayout.layout(
+            targets: isolated,
+            screenBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        #expect(alone.count == 2)
+        #expect(alone.filter { $0.needsLeader }.isEmpty)
+
+        // Close neighbors on one row → stay within leash (rail or snap-back).
+        let clustered = [
+            HintTarget(id: "3", title: "C", frame: CGRect(x: 200, y: 200, width: 10, height: 16), code: "c"),
+            HintTarget(id: "4", title: "D", frame: CGRect(x: 214, y: 200, width: 10, height: 16), code: "d"),
+            HintTarget(id: "5", title: "E", frame: CGRect(x: 228, y: 200, width: 10, height: 16), code: "e"),
+        ]
+        let packed = HintLayout.layout(
+            targets: clustered,
+            screenBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        for b in packed {
+            let d = hypot(b.bubbleFrame.midX - b.targetPoint.x, b.bubbleFrame.midY - b.targetPoint.y)
+            #expect(d <= 28.5)
+        }
     }
 
     @Test func typeToArm() {
@@ -36,6 +74,19 @@ struct HintTests {
         } else {
             Issue.record("expected armed")
         }
+    }
+
+    @Test func spaceArmsExactSingleCharOverLongerPrefix() {
+        var state = HintState(targets: [
+            HintTarget(id: "short", title: "A", frame: .zero, code: "a"),
+            HintTarget(id: "long", title: "Ab", frame: .zero, code: "ab"),
+        ])
+        let narrowed = state.typeCharacter("a")
+        #expect(narrowed == .narrowed)
+        #expect(state.armedID == nil)
+        let armed = state.armExactMatch()
+        #expect(armed)
+        #expect(state.armedID == "short")
     }
 
     @Test func visionStubEmpty() async {

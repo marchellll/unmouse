@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UnmouseCore
 
@@ -13,22 +14,15 @@ struct HintOverlayView: View {
 
             for bubble in model.hintBubbles {
                 guard model.hintState.visibleTargets.contains(where: { $0.id == bubble.id }) else { continue }
-                // Convert AppKit screen coords to panel-local (panel = screen.frame)
-                let localBubble = CGRect(
-                    x: bubble.bubbleFrame.minX - screen.minX,
-                    // SwiftUI Canvas y is top-down; AppKit y is bottom-up
-                    y: screen.maxY - bubble.bubbleFrame.maxY,
-                    width: bubble.bubbleFrame.width,
-                    height: bubble.bubbleFrame.height
-                )
-                let localTarget = CGPoint(
-                    x: bubble.targetPoint.x - screen.minX,
-                    y: screen.maxY - bubble.targetPoint.y
-                )
-                if bubble.needsLeader {
+                // AppKit screen → panel-local (SwiftUI y is top-down).
+                let localBubble = Self.toLocal(bubble.bubbleFrame, screen: screen)
+                if bubble.needsLeader, bubble.leaderPath.count >= 2 {
                     var p = Path()
-                    p.move(to: CGPoint(x: localBubble.midX, y: localBubble.midY))
-                    p.addLine(to: localTarget)
+                    let pts = bubble.leaderPath.map { Self.toLocal($0, screen: screen) }
+                    p.move(to: pts[0])
+                    for pt in pts.dropFirst() {
+                        p.addLine(to: pt)
+                    }
                     context.stroke(p, with: .color(line), lineWidth: 1)
                 }
                 let rounded = Path(roundedRect: localBubble, cornerRadius: 6)
@@ -46,6 +40,17 @@ struct HintOverlayView: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
-}
 
-import AppKit
+    private static func toLocal(_ r: CGRect, screen: CGRect) -> CGRect {
+        CGRect(
+            x: r.minX - screen.minX,
+            y: screen.maxY - r.maxY,
+            width: r.width,
+            height: r.height
+        )
+    }
+
+    private static func toLocal(_ p: CGPoint, screen: CGRect) -> CGPoint {
+        CGPoint(x: p.x - screen.minX, y: screen.maxY - p.y)
+    }
+}

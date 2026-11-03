@@ -29,6 +29,10 @@ public final class HeldKeyStore: @unchecked Sendable {
         }
     }
 
+    public func isHeld(_ token: String) -> Bool {
+        mutex.withLock { $0.held.contains(token) }
+    }
+
     public func setDragging(_ value: Bool) {
         mutex.withLock { $0.dragging = value }
     }

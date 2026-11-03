@@ -3,26 +3,31 @@ import UnmouseCore
 
 struct StatusIconView: View {
     @Bindable var model: AppModel
+    @State private var pulse = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 0.1)) { timeline in
-            let pulse = model.mode == .idle ? 1.0 : 0.75 + 0.25 * sin(timeline.date.timeIntervalSinceReferenceDate * 3)
-            Canvas { context, size in
-                let color = Color.primary.opacity(pulse)
-                let rect = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
-                switch model.mode {
-                case .idle:
-                    drawMouse(context: context, in: rect, color: color)
-                case .grid:
-                    drawGrid(context: context, in: rect, color: color)
-                case .free:
-                    drawCrosshair(context: context, in: rect, color: color, dragging: model.dragging)
-                case .hint:
-                    drawBubble(context: context, in: rect, color: color)
-                }
+        Canvas { context, size in
+            let color = Color.primary.opacity(model.mode == .idle ? 1.0 : (pulse ? 1.0 : 0.7))
+            let rect = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
+            switch model.mode {
+            case .idle:
+                drawMouse(context: context, in: rect, color: color)
+            case .grid:
+                drawGrid(context: context, in: rect, color: color)
+            case .free:
+                drawCrosshair(context: context, in: rect, color: color, dragging: model.dragging)
+            case .hint:
+                drawBubble(context: context, in: rect, color: color)
             }
         }
         .frame(width: 18, height: 18)
+        .onChange(of: model.mode) { _, mode in
+            pulse = false
+            guard mode != .idle else { return }
+            withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        }
     }
 
     private func drawMouse(context: GraphicsContext, in rect: CGRect, color: Color) {
@@ -36,11 +41,9 @@ struct StatusIconView: View {
 
     private func drawGrid(context: GraphicsContext, in rect: CGRect, color: Color) {
         let s = rect.insetBy(dx: 1, dy: 1)
-        let midX = s.midX
-        let midY = s.midY
         context.stroke(Path(s), with: .color(color), lineWidth: 1.2)
-        var h = Path(); h.move(to: CGPoint(x: s.minX, y: midY)); h.addLine(to: CGPoint(x: s.maxX, y: midY))
-        var v = Path(); v.move(to: CGPoint(x: midX, y: s.minY)); v.addLine(to: CGPoint(x: midX, y: s.maxY))
+        var h = Path(); h.move(to: CGPoint(x: s.minX, y: s.midY)); h.addLine(to: CGPoint(x: s.maxX, y: s.midY))
+        var v = Path(); v.move(to: CGPoint(x: s.midX, y: s.minY)); v.addLine(to: CGPoint(x: s.midX, y: s.maxY))
         context.stroke(h, with: .color(color), lineWidth: 1)
         context.stroke(v, with: .color(color), lineWidth: 1)
     }

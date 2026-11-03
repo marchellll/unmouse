@@ -1,5 +1,7 @@
 [input]
 karabiner = true       # use the virtual keyboard when it is present, including after a later install
+tap_max_ms = 200       # max hold (ms) that still counts as an alone-tap for grid/free mode
+mode_timeout_s = 10     # exit grid/free/hint after N seconds idle; 0 = never
 
 [log]
 level = "none"         # none | error | warn | info | debug
@@ -8,17 +10,29 @@ level = "none"         # none | error | warn | info | debug
 [grid]
 rows = 5
 cols = 4
+sub_rows = 3       # second grid, and the third when depth is 3
+sub_cols = 3
+sub_font_size = 16
+sub_label = "#FFFFFF"
+sub_glow = "#FFFFFF"
+sub_glow_radius = 8
 chars = "qwertyuiopasdfghjkl;"
 depth = 2          # 1...3
 selection_dim = "#00000080"   # unselected area; "#00000000" turns the darken off
 selection_blur = 12           # points of behind-window blur on that area; 0 turns blur off
+font = "system"          # PostScript name, or "system" for SF Mono
+label_outline = "#000000"       # stroke around cell letters; "#00000000" or width 0 turns it off
+label_outline_width = 2     # points
 
 [free]
-speed = 480.0        # points per second
+speed = 660.0        # cursor speed in points per second
 fast_multiplier = 3.0
 slow_multiplier = 0.25
-scroll_speed = 3.0
-
+scroll_speed = 5.0   # scroll lines per second
+halo_attention = "pulse"   # none | pulse | ping | breathe
+halo_attention_period = 1.4  # seconds
+halo_attention_scale = 3.6
+halo_offset = [25.0, -25.0]  # cartesian points from the pointer; +x right, +y up
 [hint]
 chars = "qwesfghjkl"
 
@@ -29,7 +43,8 @@ label = "#FFFFFF"
 highlight = "#FFFFFF"
 grid_blend = "exclusion"   # exclusion | difference | normal | colorBurn | plusLighter
 free_dot = "#FFFFFF"
-free_dot_halo = "#000000"
+free_dot_halo = "#FFFFFF99"  # translucent white stays visible with exclusion blending
+free_dot_blend = "exclusion"   # exclusion | difference | normal | colorBurn | plusLighter
 hint_fill = "#111111EE"
 hint_text = "#FFFFFF"
 hint_line = "#FFFFFFCC"
@@ -83,9 +98,9 @@ move_up = ["k", "up"]
 move_right = ["l", "right"]
 faster = ["z"]                  # hold
 slower = ["x"]                  # hold
-scroll_up = ["m"]
+scroll_left = ["m"]
 scroll_down = [","]
-scroll_left = ["."]
+scroll_up = ["."]
 scroll_right = ["/"]
 toggle_drag = ["q"]
 left_click = ["space"]                # stays in free mode; if a drag is held, drop it and stay
@@ -97,5 +112,6 @@ cancel = ["escape"]
 left_click = ["space"]                # armed hint: click and exit
 right_click = ["a"]        # armed hint: right click and exit
 move_no_action = ["d"]       # armed hint: move, do not click
+to_free = ["option_left"]             # armed hint: move there and enter free mode
 cancel = ["escape"]
 back = ["delete", "backspace"]

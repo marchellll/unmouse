@@ -31,6 +31,24 @@ final class AppModel {
     private var configFD: Int32 = -1
     private(set) var overlayController: OverlayController?
     private var lastFlags: CGEventFlags = []
+    /// Fractional scroll leftover so scroll_speed is lines/sec, not lines/frame.
+    private var scrollFracX: Double = 0
+    private var scrollFracY: Double = 0
+    private var saveWorkItem: DispatchWorkItem?
+    private var suppressConfigReload = false
+    /// Currently applied preset name (for Settings picker).
+    var selectedPresetName: String = "default.config"
+    /// Speed modifiers tracked explicitly so Z/X work while move keys (incl. arrows) are held.
+    private var fasterHeld = false
+    /// Option enters free on key-down. The matching key-up must not immediately leave.
+    private var consumeFreeExitUp = false
+    private var lastLeftClickNanos: UInt64 = 0
+    private var slowerHeld = false
+    /// Last user input while a mode is active (for mode_timeout_s).
+    private var lastModeActivityNanos: UInt64 = 0
+    private var modeWatchTimer: DispatchSourceTimer?
+    /// Drops stale AX scans when hint mode is re-entered before the prior collect finishes.
+    private var hintLoadGeneration: UInt64 = 0
 
     enum KarabinerStatus: String {
         case usingKarabiner = "Using Karabiner"
@@ -51,6 +69,7 @@ final class AppModel {
         overlayController = OverlayController(model: self)
         accessibilityTrusted = AXIsProcessTrusted()
         inputMonitoringOK = eventTap.start()
+        eventTap.setMaxTapMilliseconds(UInt64(max(50, config.input.tapMaxMs)))
         if !inputMonitoringOK {
             // still try; may need permission
         }
@@ -108,16 +127,42 @@ final class AppModel {
     func reloadConfig() {
         do {
             let defaultText = try loadBundledDefault()
+            let configURL = ConfigIO.configURL()
+            let isFirstRun = !FileManager.default.fileExists(atPath: configURL.path)
             let url = try ConfigIO.ensureConfig(defaultText: defaultText)
-            let loaded = try ConfigIO.decodeFile(at: url)
+            var loaded = try ConfigIO.decodeFile(at: url)
+            if isFirstRun {
+                let size = screenForCursor().frame.size
+                let dimensions = GridSizing.dimensions(for: size)
+                loaded.grid.rows = dimensions.rows
+                loaded.grid.cols = dimensions.cols
+                loaded.grid.subRows = dimensions.rows
+                loaded.grid.subCols = dimensions.cols
+                try ConfigIO.save(loaded)
+            }
+            // Black contributes no visible change with exclusion blending, so the
+            // old default made the attention animation invisible.
+            if loaded.colors.freeDotBlend == .exclusion,
+               loaded.colors.freeDotHalo.uppercased() == "#000000",
+               loaded.free.haloAttention != .none
+            {
+                loaded.colors.freeDotHalo = "#FFFFFF99"
+                try ConfigIO.save(loaded)
+            }
             let errors = ConfigValidator.validate(loaded)
-            if errors.isEmpty {
+            configError = errors.isEmpty ? nil : errors.map(\.description).joined(separator: "; ")
+            // A shortcut that repeats a grid letter is flagged, and the rest of the config still loads.
+            let blocking = errors.filter(\.blocksApply)
+            if blocking.isEmpty {
                 config = loaded
-                configError = nil
                 UnmouseLog.setLevel(loaded.log.level)
-                UnmouseLog.info("config loaded")
+                if errors.isEmpty {
+                    UnmouseLog.info("config loaded")
+                } else {
+                    UnmouseLog.error("config invalid: \(configError ?? "")")
+                }
+                eventTap.setMaxTapMilliseconds(UInt64(max(50, loaded.input.tapMaxMs)))
             } else {
-                configError = errors.map(\.description).joined(separator: "; ")
                 UnmouseLog.error("config invalid: \(configError ?? "")")
             }
         } catch {
@@ -129,8 +174,52 @@ final class AppModel {
 
     func applyPreset(_ item: PresetItem) {
         guard let text = try? String(contentsOf: item.url, encoding: .utf8) else { return }
+        suppressConfigReload = true
         try? ConfigIO.replaceConfig(with: text)
+        selectedPresetName = item.name
         reloadConfig()
+        suppressConfigReload = false
+        overlayController?.refreshAppearance()
+    }
+
+    /// Fit the grid and the subgrid to the display under the pointer. Both use the same count, so two passes land on a cell small enough to hit.
+    func recalculateGridDimensions() {
+        let dimensions = GridSizing.dimensions(for: screenForCursor().frame.size)
+        config.grid.rows = dimensions.rows
+        config.grid.cols = dimensions.cols
+        config.grid.subRows = dimensions.rows
+        config.grid.subCols = dimensions.cols
+        commitConfigEdits()
+    }
+
+    /// Persist in-memory settings edits to config.toml (debounced).
+    func commitConfigEdits() {
+        let errors = ConfigValidator.validate(config)
+        configError = errors.isEmpty ? nil : errors.map(\.description).joined(separator: "; ")
+        if errors.contains(where: \.blocksApply) {
+            return
+        }
+        UnmouseLog.setLevel(config.log.level)
+        eventTap.setMaxTapMilliseconds(UInt64(max(50, config.input.tapMaxMs)))
+        updateKarabiner()
+        overlayController?.refreshAppearance()
+
+        saveWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.suppressConfigReload = true
+            do {
+                try ConfigIO.save(self.config)
+            } catch {
+                self.configError = String(describing: error)
+            }
+            // Allow watcher to settle before accepting external reloads.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.suppressConfigReload = false
+            }
+        }
+        saveWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
     }
 
     func editConfig() {
@@ -167,7 +256,8 @@ final class AppModel {
             queue: .main
         )
         source.setEventHandler { [weak self] in
-            self?.reloadConfig()
+            guard let self, !self.suppressConfigReload else { return }
+            self.reloadConfig()
         }
         source.setCancelHandler { [weak self] in
             if let fd = self?.configFD, fd >= 0 { close(fd) }
@@ -178,18 +268,19 @@ final class AppModel {
     }
 
     private func updateKarabiner() {
-        let present = KarabinerPresence.virtualKeyboardPresent() || KarabinerPresence.cliPresent()
-        if config.input.karabiner {
-            if present {
-                karabinerStatus = .usingKarabiner
-                _ = karabiner.startIfAvailable()
-            } else {
-                karabinerStatus = .waitingForKarabiner
-                karabiner.stop()
-            }
-        } else {
+        guard config.input.karabiner else {
             karabinerStatus = .eventTapOnly
             karabiner.stop()
+            return
+        }
+        // Opening an IOHIDManager scans every device and leaks Mach ports if repeated.
+        if !karabiner.isRunning {
+            _ = karabiner.startIfAvailable()
+        }
+        if karabiner.isActive || KarabinerPresence.cliPresent() {
+            karabinerStatus = .usingKarabiner
+        } else {
+            karabinerStatus = .waitingForKarabiner
         }
     }
 
@@ -208,18 +299,71 @@ final class AppModel {
 
     private func handleKey(kind: KeyKind, flags: CGEventFlags, down: Bool, alone: Bool, source: InputSource) -> Bool {
         lastFlags = flags
+
+        // Modifiers are EventTap-only (see KarabinerListener). Never dedupe them —
+        // a duplicate key-up with alone=false was swallowing real alone-taps.
+        if mode != .idle {
+            bumpModeActivity()
+        }
+
+        if kind.isModifier {
+            if source == .karabiner { return false }
+            let token = KeyCodes.token(for: kind)
+            heldKeys.setHeld(token, down: down)
+            if !down {
+                return handleKeyUp(kind: kind, flags: flags, alone: alone)
+            }
+            return handleKeyDown(kind: kind, flags: flags)
+        }
+
         let token = KeyCodes.token(for: kind)
+        // Mirror every event into held set before dedupe. Swallowing CGEvents makes
+        // CGEventSource.keyState unreliable, so our set is the source of truth.
+        // In free mode, ignore Karabiner key-ups — HID NKRO ghosts clear Z/X while
+        // arrows stay down, which killed speed modifiers mid-move.
+        if down {
+            heldKeys.setHeld(token, down: true)
+        } else if source == .tap || mode != .free {
+            heldKeys.setHeld(token, down: false)
+        }
+        updateSpeedModifierFlags(kind: kind, down: down, source: source)
+
         let now = DispatchTime.now().uptimeNanoseconds
         guard deduper.shouldHandle(token: token, down: down, nowNanos: now) else {
             return mode != .idle
         }
 
-        heldKeys.setHeld(token, down: down)
-
         if !down {
             return handleKeyUp(kind: kind, flags: flags, alone: alone)
         }
         return handleKeyDown(kind: kind, flags: flags)
+    }
+
+    private func updateSpeedModifierFlags(kind: KeyKind, down: Bool, source: InputSource) {
+        let b = config.bindings.free
+        let faster = BindingMatcher(b.faster).matches(key: kind, flags: [], alone: false)
+        let slower = BindingMatcher(b.slower).matches(key: kind, flags: [], alone: false)
+        guard faster || slower else { return }
+        if down {
+            if faster { fasterHeld = true }
+            if slower { slowerHeld = true }
+        } else if source == .tap || mode != .free {
+            if faster { fasterHeld = false }
+            if slower { slowerHeld = false }
+        }
+    }
+
+    private func bindingHeld(_ raw: [String]) -> Bool {
+        for shortcut in (try? ShortcutParser.parseAll(raw)) ?? [] {
+            if heldKeys.isHeld(KeyCodes.token(for: shortcut.key)) { return true }
+            // HID fallback when the tap missed a down during an arrow chord.
+            if let code = KeyCodes.keyCode(for: shortcut.key),
+               CGEventSource.keyState(.combinedSessionState, key: code)
+            {
+                return true
+            }
+        }
+        return false
     }
 
     private func handleKeyDown(kind: KeyKind, flags: CGEventFlags) -> Bool {
@@ -238,6 +382,9 @@ final class AppModel {
                 enterHint()
                 return true
             }
+            if isLeftClickKey(kind, flags: flags), performLeftClick(secondOnly: true) {
+                return true
+            }
             return false
 
         case .grid:
@@ -251,11 +398,17 @@ final class AppModel {
 
     private func handleKeyUp(kind: KeyKind, flags: CGEventFlags, alone: Bool) -> Bool {
         let global = config.bindings.global
+        if consumeFreeExitUp && kind.isModifier {
+            consumeFreeExitUp = false
+            if mode == .free, BindingMatcher(global.freeMode).matches(key: kind, flags: [], alone: true) {
+                return false
+            }
+        }
         if alone {
             if BindingMatcher(global.gridMode).matches(key: kind, flags: [], alone: true) {
                 if mode == .free || mode == .idle || (mode == .grid) {
                     enterGrid()
-                    return true
+                    return false
                 }
             }
             if BindingMatcher(global.freeMode).matches(key: kind, flags: [], alone: true) {
@@ -263,15 +416,15 @@ final class AppModel {
                     let primaryH = NSScreen.screens.first?.frame.height ?? 0
                     PointerController.move(to: CoordinateSpace.appKitToCGEvent(center, primaryHeight: primaryH))
                     enterFree(fromGrid: true)
-                    return true
+                    return false
                 }
                 if mode == .idle {
                     enterFree(fromGrid: false)
-                    return true
+                    return false
                 }
                 if mode == .free {
                     exitToIdle()
-                    return true
+                    return false
                 }
             }
         }
@@ -288,29 +441,48 @@ final class AppModel {
             cols: config.grid.cols,
             chars: config.grid.chars,
             depth: config.grid.depth,
+            subRows: config.grid.subRows,
+            subCols: config.grid.subCols,
             screenIndex: idx,
             screenOrigin: screen.frame.origin,
             screenSize: screen.frame.size
         )
         mode = .grid
+        bumpModeActivity()
+        startModeWatch()
         overlayController?.showGrid()
+        overlayController?.updateCoach()
         note(.enteredGrid)
     }
 
     func enterFree(fromGrid: Bool) {
         mode = .free
+        hintState = HintState()
+        hintBubbles = []
+        bumpModeActivity()
+        startModeWatch()
         overlayController?.hideGrid()
+        overlayController?.hideHints()
+        overlayController?.revealSystemCursor()
         overlayController?.showFreeDot()
+        overlayController?.updateCoach()
         startDisplayLink()
         note(fromGrid ? .gridToFree : .enteredFree)
     }
 
     func enterHint() {
-        Task { await loadHints() }
+        hintLoadGeneration &+= 1
+        let generation = hintLoadGeneration
+        hintState = HintState()
+        hintBubbles = []
         mode = .hint
+        bumpModeActivity()
+        startModeWatch()
         overlayController?.hideGrid()
         overlayController?.showHints()
+        overlayController?.updateCoach()
         note(.enteredHint)
+        Task { await loadHints(generation: generation) }
     }
 
     func exitToIdle(keepDrag: Bool = false) {
@@ -325,7 +497,47 @@ final class AppModel {
         hintBubbles = []
         overlayController?.hideAllOverlays(keepDrag: keepDrag)
         stopDisplayLink()
+        stopModeWatch()
         heldKeys.clearHeld()
+        fasterHeld = false
+        slowerHeld = false
+        scrollFracX = 0
+        scrollFracY = 0
+    }
+
+    private func bumpModeActivity() {
+        lastModeActivityNanos = DispatchTime.now().uptimeNanoseconds
+    }
+
+    private func startModeWatch() {
+        overlayController?.revealSystemCursor()
+        if modeWatchTimer != nil { return }
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 0.25, repeating: 0.25)
+        timer.setEventHandler { [weak self] in
+            self?.checkModeTimeout()
+        }
+        timer.resume()
+        modeWatchTimer = timer
+    }
+
+    private func stopModeWatch() {
+        modeWatchTimer?.cancel()
+        modeWatchTimer = nil
+    }
+
+    private func checkModeTimeout() {
+        guard mode != .idle else {
+            stopModeWatch()
+            return
+        }
+        let limit = config.input.modeTimeoutS
+        guard limit > 0 else { return }
+        let elapsed = Double(DispatchTime.now().uptimeNanoseconds &- lastModeActivityNanos) / 1_000_000_000
+        if elapsed >= limit {
+            exitToIdle(keepDrag: dragging)
+            note(.cancelled)
+        }
     }
 
     private func handleGridKey(kind: KeyKind, flags: CGEventFlags) -> Bool {
@@ -359,14 +571,14 @@ final class AppModel {
         else if BindingMatcher(b.rightClick).matches(key: kind, flags: flags, alone: false) { finalize = .rightClick }
         else if BindingMatcher(b.middleClick).matches(key: kind, flags: flags, alone: false) { finalize = .middleClick }
         else if BindingMatcher(b.moveOnly).matches(key: kind, flags: flags, alone: false) { finalize = .moveOnly }
-        else if BindingMatcher(b.toFree).matches(key: kind, flags: flags, alone: true) || BindingMatcher(b.toFree).matches(key: kind, flags: flags, alone: false) {
+        else if BindingMatcher(b.toFree).matches(key: kind, flags: flags, alone: kind.isModifier) {
             finalize = .toFree
         }
 
         let ch = kind.character
         let decision = GridInputRouter.decide(
             character: ch,
-            matchesFinalize: state.isCellSelected ? finalize : nil,
+            matchesFinalize: (finalize == .toFree || state.hasClickTarget) ? finalize : nil,
             matchesBack: false,
             matchesCancel: false,
             matchesNextScreen: false,
@@ -375,28 +587,23 @@ final class AppModel {
 
         switch decision {
         case .typeCoordinate(let c):
-            let result = state.typeCharacter(c)
-            gridState = state
-            overlayController?.refreshGrid()
-            if case .selected = result { note(.typedGridCell) }
+            commitGridCharacter(c, state: &state)
             return true
         case .finalize(let action):
+            if action == .toFree, kind.isModifier {
+                consumeFreeExitUp = true
+            }
             performGridFinalize(action, state: state)
             return true
         case .descend(let c):
+            // Already selected; this key both descends and starts typing the nested cell.
             if state.descend() {
-                _ = state.typeCharacter(c)
-                gridState = state
-                overlayController?.refreshGrid()
+                commitGridCharacter(c, state: &state)
             }
             return true
         case .ignore:
-            // option_left alone handled on key up; if finalize while selected via letter before selected, type as coord
             if !state.isCellSelected, let c = ch, config.grid.chars.lowercased().contains(c) {
-                let result = state.typeCharacter(c)
-                gridState = state
-                overlayController?.refreshGrid()
-                if case .selected = result { note(.typedGridCell) }
+                commitGridCharacter(c, state: &state)
                 return true
             }
             return true
@@ -405,13 +612,53 @@ final class AppModel {
         }
     }
 
+    /// One key selects that rectangle. Space clicks it. The last character of a cell opens the next grid.
+    private func commitGridCharacter(_ c: Character, state: inout GridState) {
+        let result = state.typeCharacter(c)
+        switch result {
+        case .selected:
+            moveCursorToSelectedCell(state)
+            note(.typedGridCell)
+        case .openedSubgrid:
+            moveCursor(to: state.levelCenter)
+            note(.typedGridCell)
+        case .typing where state.prospectiveCenter != nil:
+            moveCursorToSelectedCell(state)
+        default:
+            break
+        }
+        gridState = state
+        overlayController?.refreshGrid()
+    }
+
+    private func moveCursorToSelectedCell(_ state: GridState) {
+        guard let center = state.prospectiveCenter else { return }
+        moveCursor(to: center)
+    }
+
+    private func moveCursor(to center: CGPoint) {
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        let cg = CoordinateSpace.appKitToCGEvent(center, primaryHeight: primaryH)
+        if dragging {
+            let current = PointerController.location
+            PointerController.moveBy(dx: cg.x - current.x, dy: cg.y - current.y, dragging: true)
+        } else {
+            PointerController.move(to: cg)
+        }
+        overlayController?.revealSystemCursor()
+    }
+
     private func performGridFinalize(_ action: GridFinalizeAction, state: GridState) {
-        guard let center = state.prospectiveCenter else {
-            exitToIdle(keepDrag: dragging)
+        guard let point = state.prospectiveCenter else {
+            if action == .toFree {
+                enterFree(fromGrid: true)
+            } else {
+                exitToIdle(keepDrag: dragging)
+            }
             return
         }
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let cg = CoordinateSpace.appKitToCGEvent(center, primaryHeight: primaryH)
+        let cg = CoordinateSpace.appKitToCGEvent(point, primaryHeight: primaryH)
         PointerController.move(to: cg)
 
         switch action {
@@ -422,8 +669,7 @@ final class AppModel {
                 heldKeys.setDragging(false)
                 note(.dragDropped)
             } else {
-                PointerController.click(.left)
-                note(.leftClick)
+                performLeftClick()
             }
             exitToIdle()
         case .rightClick:
@@ -479,8 +725,7 @@ final class AppModel {
                 heldKeys.setDragging(false)
                 note(.dragDropped)
             } else {
-                PointerController.click(.left)
-                note(.leftClick)
+                performLeftClick()
             }
             return true
         }
@@ -534,22 +779,42 @@ final class AppModel {
             return true
         }
 
-        if hintState.armedID != nil {
-            if BindingMatcher(b.leftClick).matches(key: kind, flags: flags, alone: false) {
+        // Space / click bindings confirm an exact typed code even when longer
+        // codes still share that prefix (single-char would otherwise be stuck).
+        if BindingMatcher(b.leftClick).matches(key: kind, flags: flags, alone: false) {
+            if hintState.armExactMatch() {
+                note(.hintArmed)
                 finalizeHint(.left)
-                return true
             }
-            if BindingMatcher(b.rightClick).matches(key: kind, flags: flags, alone: false) {
+            return true
+        }
+        if BindingMatcher(b.rightClick).matches(key: kind, flags: flags, alone: false) {
+            if hintState.armExactMatch() {
+                note(.hintArmed)
                 finalizeHint(.right)
-                return true
             }
-            if BindingMatcher(b.moveNoAction).matches(key: kind, flags: flags, alone: false) {
+            return true
+        }
+        if BindingMatcher(b.moveNoAction).matches(key: kind, flags: flags, alone: false) {
+            if hintState.armExactMatch() {
+                note(.hintArmed)
                 finalizeHint(nil)
-                return true
             }
+            return true
+        }
+        if BindingMatcher(b.toFree).matches(key: kind, flags: flags, alone: kind.isModifier) {
+            if hintState.armExactMatch() {
+                note(.hintArmed)
+                if kind.isModifier { consumeFreeExitUp = true }
+                finalizeHintToFree()
+            }
+            return true
         }
 
         if let ch = kind.character {
+            // Ignore typing until the AX scan has published targets (empty collect
+            // would drop the key; a late loadHints must not wipe a partial code).
+            guard !hintState.targets.isEmpty else { return true }
             let result = hintState.typeCharacter(ch)
             overlayController?.refreshHints()
             if case .armed = result { note(.hintArmed) }
@@ -560,29 +825,72 @@ final class AppModel {
 
     private func finalizeHint(_ button: MouseButton?) {
         guard let target = hintState.armedTarget else { return }
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let cg = CoordinateSpace.appKitToCGEvent(
-            CGPoint(x: target.frame.midX, y: target.frame.midY),
-            primaryHeight: primaryH
-        )
-        PointerController.move(to: cg)
+        moveToHint(target)
         if let button {
             if dragging, button == .left {
                 PointerController.mouseUp(.left)
                 dragging = false
                 heldKeys.setDragging(false)
                 note(.dragDropped)
+            } else if button == .left {
+                performLeftClick()
             } else {
                 PointerController.click(button)
-                note(button == .left ? .leftClick : .rightClick)
+                note(.rightClick)
             }
         }
         exitToIdle()
     }
 
-    private func loadHints() async {
+    /// Jump onto the armed control and continue in free mode (no click).
+    private func finalizeHintToFree() {
+        guard let target = hintState.armedTarget else { return }
+        moveToHint(target)
+        enterFree(fromGrid: false)
+    }
+
+    private func moveToHint(_ target: HintTarget) {
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        let cg = CoordinateSpace.appKitToCGEvent(
+            CGPoint(x: target.frame.midX, y: target.frame.midY),
+            primaryHeight: primaryH
+        )
+        PointerController.move(to: cg)
+    }
+
+    /// A second left-click key inside the system double-click interval sends click 2. The first click is immediate.
+    @discardableResult
+    private func performLeftClick(secondOnly: Bool = false) -> Bool {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let window = UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
+        let second = lastLeftClickNanos != 0 && now &- lastLeftClickNanos <= window
+        if secondOnly && !second { return false }
+        if second {
+            PointerController.click(.left, from: 2)
+            lastLeftClickNanos = 0
+        } else {
+            PointerController.click(.left)
+            lastLeftClickNanos = now
+        }
+        note(.leftClick)
+        return true
+    }
+
+    private func isLeftClickKey(_ kind: KeyKind, flags: CGEventFlags) -> Bool {
+        let keys = [
+            config.bindings.free.leftClick,
+            config.bindings.grid.leftClick,
+            config.bindings.hint.leftClick,
+        ]
+        return keys.contains { BindingMatcher($0).matches(key: kind, flags: flags, alone: false) }
+    }
+
+    private func loadHints(generation: UInt64) async {
         let source = AccessibilityHintSource()
         let targets = await source.collect()
+        // A newer enterHint (or leaving hint) invalidates this scan — applying it
+        // would wipe keys the user already typed against the live target list.
+        guard mode == .hint, generation == hintLoadGeneration else { return }
         let coded = HintCoder.assignCodes(targets: targets, chars: config.hint.chars)
         hintState = HintState(targets: coded)
         let screen = screenForCursor().frame
@@ -618,64 +926,70 @@ final class AppModel {
 
     private func tickFreeMode(dt: TimeInterval) {
         guard mode == .free else { return }
-        let snap = heldKeys.snapshot()
-        var speed = config.free.speed
+        // Do not publish per-frame state. Redrawing the blended free-dot view
+        // leaked a Mach port every frame (Activity Monitor "Ports" climbs into the thousands).
         let b = config.bindings.free
-        let fasterTokens = Set((try? ShortcutParser.parseAll(b.faster))?.map { KeyCodes.token(for: $0.key) } ?? [])
-        let slowerTokens = Set((try? ShortcutParser.parseAll(b.slower))?.map { KeyCodes.token(for: $0.key) } ?? [])
-        if !snap.held.isDisjoint(with: fasterTokens) {
-            speed *= config.free.fastMultiplier
+        var speedMult = 1.0
+        if fasterHeld || bindingHeld(b.faster) {
+            speedMult *= config.free.fastMultiplier
             note(.heldFaster)
         }
-        if !snap.held.isDisjoint(with: slowerTokens) {
-            speed *= config.free.slowMultiplier
+        if slowerHeld || bindingHeld(b.slower) {
+            speedMult *= config.free.slowMultiplier
             note(.heldSlower)
         }
-        let step = CGFloat(speed * dt)
-
-        func held(_ raw: [String]) -> Bool {
-            let tokens = Set((try? ShortcutParser.parseAll(raw))?.map { KeyCodes.token(for: $0.key) } ?? [])
-            return !snap.held.isDisjoint(with: tokens)
-        }
+        let step = CGFloat(config.free.speed * speedMult * dt)
 
         var dx: CGFloat = 0
         var dy: CGFloat = 0
         // CGEvent y: down is positive
-        if held(b.moveLeft) { dx -= step }
-        if held(b.moveRight) { dx += step }
-        if held(b.moveUp) { dy -= step }
-        if held(b.moveDown) { dy += step }
+        if bindingHeld(b.moveLeft) { dx -= step }
+        if bindingHeld(b.moveRight) { dx += step }
+        if bindingHeld(b.moveUp) { dy -= step }
+        if bindingHeld(b.moveDown) { dy += step }
         if dx != 0 || dy != 0 {
-            PointerController.moveBy(dx: dx, dy: dy)
-            if dragging { PointerController.dragMove() }
+            // While dragging, only post dragged events — mouseMoved drops the button.
+            PointerController.moveBy(dx: dx, dy: dy, dragging: dragging)
+            bumpModeActivity()
             note(.moved)
         }
 
-        let scroll = Int32(config.free.scrollSpeed)
-        var sdx: Int32 = 0
-        var sdy: Int32 = 0
-        if held(b.scrollUp) { sdy += scroll }
-        if held(b.scrollDown) { sdy -= scroll }
-        if held(b.scrollLeft) { sdx -= scroll }
-        if held(b.scrollRight) { sdx += scroll }
+        // scroll_speed is lines per second. 16pt is one line, posted as pixels every frame.
+        let scrollRate = config.free.scrollSpeed * speedMult * 16
+        if bindingHeld(b.scrollUp) { scrollFracY += scrollRate * dt }
+        if bindingHeld(b.scrollDown) { scrollFracY -= scrollRate * dt }
+        if bindingHeld(b.scrollLeft) { scrollFracX -= scrollRate * dt }
+        if bindingHeld(b.scrollRight) { scrollFracX += scrollRate * dt }
+        let sdx = scrollFracX.rounded(.towardZero)
+        let sdy = scrollFracY.rounded(.towardZero)
         if sdx != 0 || sdy != 0 {
+            scrollFracX -= sdx
+            scrollFracY -= sdy
             PointerController.scroll(dx: sdx, dy: sdy)
+            bumpModeActivity()
             note(.scrolled)
         }
 
-        overlayController?.moveFreeDot()
+        overlayController?.syncFreeDot(dragging: dragging)
     }
 
     // MARK: Tutorial
 
     func startTutorial(_ session: TutorialSessionID) {
         tutorial = TutorialProgress(session: session)
-        coachEnabled = true
+        // Practice window owns the tutorial UI; don't also open the corner coach.
+        coachEnabled = false
+        TutorialArenaController.shared.show(model: self)
+        overlayController?.updateCoach()
     }
 
     func skipTutorial() {
         _ = tutorial?.handle(.skipped)
         finishTutorialSession()
+    }
+
+    func noteArena(_ event: TutorialEvent) {
+        note(event)
     }
 
     private func note(_ event: TutorialEvent) {
@@ -697,9 +1011,11 @@ final class AppModel {
         saveCompletedSessions(done)
         if let next = t.session.next {
             tutorial = TutorialProgress(session: next)
+            TutorialArenaController.shared.show(model: self)
         } else {
             tutorial = nil
             coachEnabled = false
+            TutorialArenaController.shared.close()
         }
     }
 

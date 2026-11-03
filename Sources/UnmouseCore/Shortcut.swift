@@ -136,6 +136,54 @@ extension KeyKind {
     }
 }
 
+extension KeyKind {
+    /// Config token form (`command_left`, `space`, `a`, `f12`, …).
+    public var configToken: String {
+        switch self {
+        case .letter(let c), .digit(let c), .punctuation(let c):
+            String(c)
+        case .space: "space"
+        case .return: "return"
+        case .escape: "escape"
+        case .tab: "tab"
+        case .delete: "delete"
+        case .forwardDelete: "forward_delete"
+        case .left: "left"
+        case .right: "right"
+        case .up: "up"
+        case .down: "down"
+        case .home: "home"
+        case .end: "end"
+        case .pageUp: "page_up"
+        case .pageDown: "page_down"
+        case .function(let n): "f\(n)"
+        case .command: "command"
+        case .commandLeft: "command_left"
+        case .commandRight: "command_right"
+        case .option: "option"
+        case .optionLeft: "option_left"
+        case .optionRight: "option_right"
+        case .shift: "shift"
+        case .shiftLeft: "shift_left"
+        case .shiftRight: "shift_right"
+        case .control: "control"
+        case .controlLeft: "control_left"
+        case .controlRight: "control_right"
+        case .fn: "fn"
+        }
+    }
+}
+
+extension Shortcut {
+    public var configString: String {
+        if modifiers.isEmpty {
+            return key.configToken
+        }
+        let mods = modifiers.map(\.configToken).sorted()
+        return (mods + [key.configToken]).joined(separator: "+")
+    }
+}
+
 public enum ShortcutParser {
     public static func parse(_ raw: String) throws -> Shortcut {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

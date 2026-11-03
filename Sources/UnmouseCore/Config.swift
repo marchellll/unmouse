@@ -7,11 +7,87 @@ public enum GridBlend: String, Codable, Sendable, CaseIterable {
     case normal
     case colorBurn
     case plusLighter
+
+    /// CALayer `compositingFilter` name. Nil = normal over.
+    public var layerFilterName: String? {
+        switch self {
+        case .exclusion: "exclusionBlendMode"
+        case .difference: "differenceBlendMode"
+        case .colorBurn: "colorBurnBlendMode"
+        case .plusLighter: "plusLighter"
+        case .normal: nil
+        }
+    }
+}
+
+public enum HaloAttention: String, Codable, Sendable, CaseIterable {
+    case none
+    case pulse
+    case ping
+    case breathe
+}
+
+/// Offset in points. Cartesian: +x is right, +y is up.
+public struct Cartesian: Codable, Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+
+    public init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        x = try Self.number(from: &c)
+        y = try Self.number(from: &c)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        try c.encode(x)
+        try c.encode(y)
+    }
+
+    private static func number(from c: inout UnkeyedDecodingContainer) throws -> Double {
+        if let d = try? c.decode(Double.self) { return d }
+        if let i = try? c.decode(Int.self) { return Double(i) }
+        throw DecodingError.dataCorruptedError(in: c, debugDescription: "expected a number")
+    }
 }
 
 public struct InputConfig: Codable, Sendable, Equatable {
     public var karabiner: Bool
-    public init(karabiner: Bool = true) { self.karabiner = karabiner }
+    /// Max hold for ⌘/⌥ alone-taps. Longer = ignored (so long-press can be used elsewhere).
+    public var tapMaxMs: Int
+    /// Exit grid / free / hint after this many seconds with no input. `0` disables.
+    public var modeTimeoutS: Double
+
+    enum CodingKeys: String, CodingKey {
+        case karabiner
+        case tapMaxMs = "tap_max_ms"
+        case modeTimeoutS = "mode_timeout_s"
+    }
+
+    public init(karabiner: Bool = true, tapMaxMs: Int = 200, modeTimeoutS: Double = 10) {
+        self.karabiner = karabiner
+        self.tapMaxMs = tapMaxMs
+        self.modeTimeoutS = modeTimeoutS
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        karabiner = try c.decodeIfPresent(Bool.self, forKey: .karabiner) ?? true
+        tapMaxMs = try c.decodeIfPresent(Int.self, forKey: .tapMaxMs) ?? 200
+        // TOMLKit stores bare `10` as Int — accept Int or Double.
+        if let d = try? c.decode(Double.self, forKey: .modeTimeoutS) {
+            modeTimeoutS = d
+        } else if let i = try? c.decode(Int.self, forKey: .modeTimeoutS) {
+            modeTimeoutS = Double(i)
+        } else {
+            modeTimeoutS = 10
+        }
+    }
 }
 
 public struct LogConfig: Codable, Sendable, Equatable {
@@ -22,31 +98,97 @@ public struct LogConfig: Codable, Sendable, Equatable {
 public struct GridConfig: Codable, Sendable, Equatable {
     public var rows: Int
     public var cols: Int
+    /// Division of every grid after the first. The same count is used for the second and, when depth is 3, the third.
+    public var subRows: Int
+    public var subCols: Int
+    /// Point size of letters on every grid after the first.
+    public var subFontSize: Double
+    public var subLabel: String
+    /// Soft light behind those letters. A clear color or radius `0` turns it off.
+    public var subGlow: String
+    public var subGlowRadius: Double
     public var chars: String
     public var depth: Int
     public var selectionDim: String
     public var selectionBlur: Int
+    /// PostScript font name. Empty / "system" → system monospaced.
+    public var font: String
+    /// Stroke around cell letters. A clear color or width `0` turns it off.
+    public var labelOutline: String
+    /// Stroke thickness in points.
+    public var labelOutlineWidth: Double
 
     enum CodingKeys: String, CodingKey {
-        case rows, cols, chars, depth
+        case rows, cols, chars, depth, font
+        case subRows = "sub_rows"
+        case subCols = "sub_cols"
+        case subFontSize = "sub_font_size"
+        case subLabel = "sub_label"
+        case subGlow = "sub_glow"
+        case subGlowRadius = "sub_glow_radius"
         case selectionDim = "selection_dim"
         case selectionBlur = "selection_blur"
+        case labelOutline = "label_outline"
+        case labelOutlineWidth = "label_outline_width"
     }
 
     public init(
         rows: Int = 5,
         cols: Int = 4,
+        subRows: Int = 3,
+        subCols: Int = 3,
+        subFontSize: Double = 16,
+        subLabel: String = "#FFFFFF",
+        subGlow: String = "#FFFFFF",
+        subGlowRadius: Double = 8,
         chars: String = "qwertyuiopasdfghjkl;",
         depth: Int = 2,
         selectionDim: String = "#00000080",
-        selectionBlur: Int = 12
+        selectionBlur: Int = 12,
+        font: String = "system",
+        labelOutline: String = "#000000",
+        labelOutlineWidth: Double = 2
     ) {
         self.rows = rows
         self.cols = cols
+        self.subRows = max(1, subRows)
+        self.subCols = max(1, subCols)
+        self.subFontSize = max(1, subFontSize)
+        self.subLabel = subLabel
+        self.subGlow = subGlow
+        self.subGlowRadius = max(0, subGlowRadius)
         self.chars = chars
         self.depth = depth
         self.selectionDim = selectionDim
         self.selectionBlur = selectionBlur
+        self.font = font
+        self.labelOutline = labelOutline
+        self.labelOutlineWidth = labelOutlineWidth
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try c.decode(Int.self, forKey: .rows)
+        cols = try c.decode(Int.self, forKey: .cols)
+        subRows = max(1, try c.decodeIfPresent(Int.self, forKey: .subRows) ?? 3)
+        subCols = max(1, try c.decodeIfPresent(Int.self, forKey: .subCols) ?? 3)
+        subFontSize = max(1, Self.decodeNumber(c, forKey: .subFontSize) ?? 16)
+        subLabel = try c.decodeIfPresent(String.self, forKey: .subLabel) ?? "#FFFFFF"
+        subGlow = try c.decodeIfPresent(String.self, forKey: .subGlow) ?? "#FFFFFF"
+        subGlowRadius = max(0, Self.decodeNumber(c, forKey: .subGlowRadius) ?? 8)
+        chars = try c.decode(String.self, forKey: .chars)
+        depth = try c.decode(Int.self, forKey: .depth)
+        selectionDim = try c.decodeIfPresent(String.self, forKey: .selectionDim) ?? "#00000080"
+        selectionBlur = try c.decodeIfPresent(Int.self, forKey: .selectionBlur) ?? 12
+        font = try c.decodeIfPresent(String.self, forKey: .font) ?? "system"
+        labelOutline = try c.decodeIfPresent(String.self, forKey: .labelOutline) ?? "#000000"
+        labelOutlineWidth = Self.decodeNumber(c, forKey: .labelOutlineWidth) ?? 2
+    }
+
+    private static func decodeNumber(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Double? {
+        if let d = try? c.decode(Double.self, forKey: key) { return d }
+        if let i = try? c.decode(Int.self, forKey: key) { return Double(i) }
+        return nil
     }
 }
 
@@ -55,24 +197,43 @@ public struct FreeConfig: Codable, Sendable, Equatable {
     public var fastMultiplier: Double
     public var slowMultiplier: Double
     public var scrollSpeed: Double
+    public var haloAttention: HaloAttention
+    /// Seconds for one attention cycle.
+    public var haloAttentionPeriod: Double
+    /// Peak halo scale relative to the core dot.
+    public var haloAttentionScale: Double
+    /// Cartesian points from the pointer. +x right, +y up.
+    public var haloOffset: Cartesian
 
     enum CodingKeys: String, CodingKey {
         case speed
         case fastMultiplier = "fast_multiplier"
         case slowMultiplier = "slow_multiplier"
         case scrollSpeed = "scroll_speed"
+        case haloAttention = "halo_attention"
+        case haloAttentionPeriod = "halo_attention_period"
+        case haloAttentionScale = "halo_attention_scale"
+        case haloOffset = "halo_offset"
     }
 
     public init(
-        speed: Double = 480,
+        speed: Double = 660,
         fastMultiplier: Double = 3,
         slowMultiplier: Double = 0.25,
-        scrollSpeed: Double = 3
+        scrollSpeed: Double = 5,
+        haloAttention: HaloAttention = .pulse,
+        haloAttentionPeriod: Double = 1.4,
+        haloAttentionScale: Double = 3.6,
+        haloOffset: Cartesian = Cartesian(x: 25, y: -25)
     ) {
         self.speed = speed
         self.fastMultiplier = fastMultiplier
         self.slowMultiplier = slowMultiplier
         self.scrollSpeed = scrollSpeed
+        self.haloAttention = haloAttention
+        self.haloAttentionPeriod = haloAttentionPeriod
+        self.haloAttentionScale = haloAttentionScale
+        self.haloOffset = haloOffset
     }
 
     public init(from decoder: Decoder) throws {
@@ -81,6 +242,10 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         fastMultiplier = try Self.decodeNumber(c, forKey: .fastMultiplier)
         slowMultiplier = try Self.decodeNumber(c, forKey: .slowMultiplier)
         scrollSpeed = try Self.decodeNumber(c, forKey: .scrollSpeed)
+        haloAttention = try c.decodeIfPresent(HaloAttention.self, forKey: .haloAttention) ?? .pulse
+        haloAttentionPeriod = (try? Self.decodeNumber(c, forKey: .haloAttentionPeriod)) ?? 1.4
+        haloAttentionScale = (try? Self.decodeNumber(c, forKey: .haloAttentionScale)) ?? 3.6
+        haloOffset = try c.decodeIfPresent(Cartesian.self, forKey: .haloOffset) ?? Cartesian(x: 25, y: -25)
     }
 
     private static func decodeNumber(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double {
@@ -103,6 +268,8 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
     public var gridBlend: GridBlend
     public var freeDot: String
     public var freeDotHalo: String
+    /// Blend for free-mode halo against the desktop. Defaults to colorBurn.
+    public var freeDotBlend: GridBlend
     public var hintFill: String
     public var hintText: String
     public var hintLine: String
@@ -112,6 +279,7 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         case gridBlend = "grid_blend"
         case freeDot = "free_dot"
         case freeDotHalo = "free_dot_halo"
+        case freeDotBlend = "free_dot_blend"
         case hintFill = "hint_fill"
         case hintText = "hint_text"
         case hintLine = "hint_line"
@@ -124,7 +292,8 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         highlight: String = "#FFFFFF",
         gridBlend: GridBlend = .exclusion,
         freeDot: String = "#FFFFFF",
-        freeDotHalo: String = "#000000",
+        freeDotHalo: String = "#FFFFFF99",
+        freeDotBlend: GridBlend = .exclusion,
         hintFill: String = "#111111EE",
         hintText: String = "#FFFFFF",
         hintLine: String = "#FFFFFFCC"
@@ -136,9 +305,25 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         self.gridBlend = gridBlend
         self.freeDot = freeDot
         self.freeDotHalo = freeDotHalo
+        self.freeDotBlend = freeDotBlend
         self.hintFill = hintFill
         self.hintText = hintText
         self.hintLine = hintLine
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        background = try c.decodeIfPresent(String.self, forKey: .background) ?? "#00000000"
+        line = try c.decodeIfPresent(String.self, forKey: .line) ?? "#FFFFFF"
+        label = try c.decodeIfPresent(String.self, forKey: .label) ?? "#FFFFFF"
+        highlight = try c.decodeIfPresent(String.self, forKey: .highlight) ?? "#FFFFFF"
+        gridBlend = try c.decodeIfPresent(GridBlend.self, forKey: .gridBlend) ?? .exclusion
+        freeDot = try c.decodeIfPresent(String.self, forKey: .freeDot) ?? "#FFFFFF"
+        freeDotHalo = try c.decodeIfPresent(String.self, forKey: .freeDotHalo) ?? "#FFFFFF99"
+        freeDotBlend = try c.decodeIfPresent(GridBlend.self, forKey: .freeDotBlend) ?? .exclusion
+        hintFill = try c.decodeIfPresent(String.self, forKey: .hintFill) ?? "#111111EE"
+        hintText = try c.decodeIfPresent(String.self, forKey: .hintText) ?? "#FFFFFF"
+        hintLine = try c.decodeIfPresent(String.self, forKey: .hintLine) ?? "#FFFFFFCC"
     }
 }
 
@@ -247,9 +432,9 @@ public struct FreeBindings: Codable, Sendable, Equatable {
         moveRight: [String] = ["l", "right"],
         faster: [String] = ["z"],
         slower: [String] = ["x"],
-        scrollUp: [String] = ["m"],
+        scrollUp: [String] = ["."],
         scrollDown: [String] = [","],
-        scrollLeft: [String] = ["."],
+        scrollLeft: [String] = ["m"],
         scrollRight: [String] = ["/"],
         toggleDrag: [String] = ["q"],
         leftClick: [String] = ["space"],
@@ -279,6 +464,7 @@ public struct HintBindings: Codable, Sendable, Equatable {
     public var leftClick: [String]
     public var rightClick: [String]
     public var moveNoAction: [String]
+    public var toFree: [String]
     public var cancel: [String]
     public var back: [String]
 
@@ -286,6 +472,7 @@ public struct HintBindings: Codable, Sendable, Equatable {
         case leftClick = "left_click"
         case rightClick = "right_click"
         case moveNoAction = "move_no_action"
+        case toFree = "to_free"
         case cancel, back
     }
 
@@ -293,14 +480,26 @@ public struct HintBindings: Codable, Sendable, Equatable {
         leftClick: [String] = ["space"],
         rightClick: [String] = ["a"],
         moveNoAction: [String] = ["d"],
+        toFree: [String] = ["option_left"],
         cancel: [String] = ["escape"],
         back: [String] = ["delete", "backspace"]
     ) {
         self.leftClick = leftClick
         self.rightClick = rightClick
         self.moveNoAction = moveNoAction
+        self.toFree = toFree
         self.cancel = cancel
         self.back = back
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? ["space"]
+        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? ["a"]
+        moveNoAction = try c.decodeIfPresent([String].self, forKey: .moveNoAction) ?? ["d"]
+        toFree = try c.decodeIfPresent([String].self, forKey: .toFree) ?? ["option_left"]
+        cancel = try c.decodeIfPresent([String].self, forKey: .cancel) ?? ["escape"]
+        back = try c.decodeIfPresent([String].self, forKey: .back) ?? ["delete", "backspace"]
     }
 }
 
@@ -374,6 +573,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
     case duplicateChars
     case cellsExceedCharset(cells: Int, max: Int)
     case duplicateShortcut(mode: String, shortcut: String)
+    case gridShortcutOverlapsChars(String)
     case hintShortcutOverlapsChars(String)
     case parse(String)
     case invalidShortcut(String)
@@ -390,6 +590,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
             "\(cells) cells need at most \(max) labels from chars"
         case .duplicateShortcut(let mode, let shortcut):
             "duplicate shortcut \(shortcut) in \(mode)"
+        case .gridShortcutOverlapsChars(let s):
+            "grid shortcut \(s) duplicates a grid char"
         case .hintShortcutOverlapsChars(let s):
             "hint shortcut \(s) overlaps hint chars"
         case .parse(let m):
@@ -397,6 +599,12 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .invalidShortcut(let m):
             m
         }
+    }
+
+    /// Grid-letter clashes stay visible and still let the rest of the config load.
+    public var blocksApply: Bool {
+        if case .gridShortcutOverlapsChars = self { return false }
+        return true
     }
 }
 
@@ -441,10 +649,21 @@ public enum ConfigValidator {
 
         let b = config.bindings
         checkDuplicates(mode: "global", groups: [b.global.gridMode, b.global.freeMode, b.global.hintMode])
-        checkDuplicates(mode: "grid", groups: [
+        let gridBindings = [
             b.grid.back, b.grid.leftClick, b.grid.rightClick, b.grid.middleClick,
             b.grid.moveOnly, b.grid.toFree, b.grid.cancel, b.grid.nextScreen,
-        ])
+        ]
+        checkDuplicates(mode: "grid", groups: gridBindings)
+        let gridChars = Set(g.chars.lowercased())
+        for raw in gridBindings.joined() {
+            if let sc = try? ShortcutParser.parse(raw),
+               sc.modifiers.isEmpty,
+               let c = sc.key.character,
+               gridChars.contains(c)
+            {
+                errors.append(.gridShortcutOverlapsChars(raw))
+            }
+        }
         checkDuplicates(mode: "free", groups: [
             b.free.moveLeft, b.free.moveDown, b.free.moveUp, b.free.moveRight,
             b.free.faster, b.free.slower, b.free.scrollUp, b.free.scrollDown,
@@ -452,11 +671,12 @@ public enum ConfigValidator {
             b.free.leftClick, b.free.rightClick, b.free.middleClick, b.free.cancel,
         ])
         checkDuplicates(mode: "hint", groups: [
-            b.hint.leftClick, b.hint.rightClick, b.hint.moveNoAction, b.hint.cancel, b.hint.back,
+            b.hint.leftClick, b.hint.rightClick, b.hint.moveNoAction, b.hint.toFree,
+            b.hint.cancel, b.hint.back,
         ])
 
         let hintChars = Set(config.hint.chars.lowercased())
-        for raw in b.hint.leftClick + b.hint.rightClick + b.hint.moveNoAction {
+        for raw in b.hint.leftClick + b.hint.rightClick + b.hint.moveNoAction + b.hint.toFree {
             if let sc = try? ShortcutParser.parse(raw),
                sc.modifiers.isEmpty,
                let c = sc.key.character,
@@ -519,27 +739,201 @@ public enum ConfigIO {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try text.write(to: configURL(), atomically: true, encoding: .utf8)
     }
+
+    public static func encode(_ config: AppConfig) throws -> String {
+        do {
+            return try TOMLEncoder().encode(config)
+        } catch {
+            throw ConfigError.parse(String(describing: error))
+        }
+    }
+
+    public static func save(_ config: AppConfig) throws {
+        try replaceConfig(with: try encode(config))
+    }
 }
 
 public enum GridLabels {
-    /// Labels for cells in row-major order from chars. Uses 1 char if enough, else 2.
+    /// One character per cell, in string order, when the alphabet can give every cell its own key.
+    public static func singleLabels(chars: String, rows: Int, cols: Int) -> [String]? {
+        let cells = max(1, rows) * max(1, cols)
+        var unique: [Character] = []
+        var seen = Set<Character>()
+        for ch in chars.lowercased() where seen.insert(ch).inserted {
+            unique.append(ch)
+            if unique.count == cells { break }
+        }
+        guard unique.count >= cells else { return nil }
+        return (0..<cells).map { String(unique[$0]) }
+    }
+
+    /// Two characters per cell when every block fits in the alphabet. Otherwise three:
+    /// the first character is still one rectangle, and the extra character names the cell inside it.
     public static func labels(chars: String, rows: Int, cols: Int) -> [String] {
         let alphabet = Array(chars)
+        let rows = max(rows, 1)
+        let cols = max(cols, 1)
         let cells = rows * cols
-        if alphabet.count >= cells {
-            return alphabet.prefix(cells).map(String.init)
+        guard !alphabet.isEmpty else { return Array(repeating: "", count: cells) }
+        if let pairs = pairLabels(alphabet: alphabet, rows: rows, cols: cols) {
+            return pairs
         }
-        var result: [String] = []
-        result.reserveCapacity(cells)
-        for i in 0..<cells {
-            let a = alphabet[i / alphabet.count]
-            let b = alphabet[i % alphabet.count]
-            result.append(String([a, b]))
-        }
-        return result
+        return tripleLabels(alphabet: alphabet, rows: rows, cols: cols, cells: cells)
     }
 
     public static func labelWidth(chars: String, rows: Int, cols: Int) -> Int {
-        chars.count >= rows * cols ? 1 : 2
+        let count = chars.count
+        guard count > 0 else { return 2 }
+        let rows = max(rows, 1)
+        let cols = max(cols, 1)
+        return twoCharPlan(rows: rows, cols: cols, alphabetCount: count) == nil ? 3 : 2
+    }
+
+    private static func pairLabels(alphabet: [Character], rows: Int, cols: Int) -> [String]? {
+        guard let plan = twoCharPlan(rows: rows, cols: cols, alphabetCount: alphabet.count) else { return nil }
+        let rowSpans = split(rows, into: plan.blockRows)
+        let colSpans = split(cols, into: plan.blockCols)
+        var rowBlock = [Int](repeating: 0, count: rows)
+        var rowLocal = [Int](repeating: 0, count: rows)
+        var row = 0
+        for (block, span) in rowSpans.enumerated() {
+            for offset in 0..<span {
+                rowBlock[row] = block
+                rowLocal[row] = offset
+                row += 1
+            }
+        }
+        var colBlock = [Int](repeating: 0, count: cols)
+        var colLocal = [Int](repeating: 0, count: cols)
+        var col = 0
+        for (block, span) in colSpans.enumerated() {
+            for offset in 0..<span {
+                colBlock[col] = block
+                colLocal[col] = offset
+                col += 1
+            }
+        }
+        return (0..<(rows * cols)).map { index in
+            let r = index / cols
+            let c = index % cols
+            let block = rowBlock[r] * plan.blockCols + colBlock[c]
+            let second = rowLocal[r] * colSpans[colBlock[c]] + colLocal[c]
+            return String(alphabet[block % alphabet.count]) + String(alphabet[second % alphabet.count])
+        }
+    }
+
+    private static func tripleLabels(alphabet: [Character], rows: Int, cols: Int, cells: Int) -> [String] {
+        let n = alphabet.count
+        if let outer = plan(rows: rows, cols: cols, alphabetCount: n, accepts: { h, w in
+            twoCharPlan(rows: h, cols: w, alphabetCount: n) != nil
+        }) {
+            var labels = Array(repeating: "", count: cells)
+            let rowSpans = split(rows, into: outer.blockRows)
+            let colSpans = split(cols, into: outer.blockCols)
+            var row0 = 0
+            for br in 0..<outer.blockRows {
+                var col0 = 0
+                for bc in 0..<outer.blockCols {
+                    let h = rowSpans[br]
+                    let w = colSpans[bc]
+                    let first = alphabet[(br * outer.blockCols + bc) % n]
+                    let inner = pairLabels(alphabet: alphabet, rows: h, cols: w) ?? []
+                    for localRow in 0..<h {
+                        for localCol in 0..<w {
+                            labels[(row0 + localRow) * cols + (col0 + localCol)] = String(first) + inner[localRow * w + localCol]
+                        }
+                    }
+                    col0 += w
+                }
+                row0 += rowSpans[br]
+            }
+            return labels
+        }
+        // ponytail: n³ is still smaller than the grid, so a unique rectangle tiling does not exist. Digits repeat modulo n.
+        return (0..<cells).map { index in
+            let first = alphabet[(index / (n * n)) % n]
+            let second = alphabet[(index / n) % n]
+            let third = alphabet[index % n]
+            return String(first) + String(second) + String(third)
+        }
+    }
+
+    private static func twoCharPlan(rows: Int, cols: Int, alphabetCount: Int) -> (blockRows: Int, blockCols: Int)? {
+        plan(rows: rows, cols: cols, alphabetCount: alphabetCount) { h, w in
+            h * w <= alphabetCount
+        }
+    }
+
+    /// Squarer blocks first, then larger ones, so the first key is a clump rather than a row or a single cell.
+    /// ponytail: scored by worst-block aspect plus 1/area. Ceiling: the search only considers an even block grid, not arbitrary rectangle partitions.
+    private static func plan(
+        rows: Int,
+        cols: Int,
+        alphabetCount: Int,
+        accepts: (Int, Int) -> Bool
+    ) -> (blockRows: Int, blockCols: Int)? {
+        let n = max(alphabetCount, 1)
+        var plans: [(blockRows: Int, blockCols: Int, penalty: Double)] = []
+        for br in 1...rows {
+            let maxBC = min(cols, n / br)
+            guard maxBC >= 1 else { continue }
+            for bc in 1...maxBC {
+                let rowSpans = split(rows, into: br)
+                let colSpans = split(cols, into: bc)
+                var worst = 1.0
+                var biggest = 1
+                var ok = true
+                for h in rowSpans {
+                    for w in colSpans {
+                        if !accepts(h, w) { ok = false }
+                        let aspect = Double(max(h, w)) / Double(max(min(h, w), 1))
+                        worst = max(worst, aspect)
+                        biggest = max(biggest, h * w)
+                    }
+                }
+                guard ok else { continue }
+                plans.append((br, bc, worst + 1 / Double(biggest)))
+            }
+        }
+        let multi = plans.filter { $0.blockRows * $0.blockCols > 1 }
+        let pool = multi.isEmpty ? plans : multi
+        return pool.min { $0.penalty < $1.penalty }.map { ($0.blockRows, $0.blockCols) }
+    }
+
+    private static func split(_ total: Int, into parts: Int) -> [Int] {
+        let parts = max(parts, 1)
+        let base = total / parts
+        let extra = total % parts
+        return (0..<parts).map { $0 < extra ? base + 1 : base }
+    }
+
+    /// Shown form of a clump: a compact block, still in string order. A 2- or 3-character key stays one line.
+    public static func clumpText(_ clump: String) -> String {
+        let count = clump.count
+        guard count > 3 else { return clump }
+        let across = Int(ceil(sqrt(Double(count))))
+        var lines: [String] = []
+        var rest = Substring(clump)
+        while !rest.isEmpty {
+            let take = min(across, rest.count)
+            lines.append(String(rest.prefix(take)))
+            rest = rest.dropFirst(take)
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// First-run grid dimensions. AppKit screen sizes are in points, so Retina scale is already accounted for.
+public enum GridSizing {
+    public static let targetHitSize: CGFloat = 44
+    public static let targetCoverage: CGFloat = 0.9
+
+    /// Same count both ways, so every nested cell keeps the screen's aspect ratio.
+    /// The longer side after two refinements stays within 90% of a 44-point target.
+    public static func dimensions(for screenSize: CGSize) -> (rows: Int, cols: Int) {
+        let maxFinalCell = targetHitSize * targetCoverage
+        let longest = max(screenSize.width, screenSize.height, 1)
+        let count = max(1, Int(ceil(sqrt(longest / maxFinalCell))))
+        return (rows: count, cols: count)
     }
 }

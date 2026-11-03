@@ -10,12 +10,14 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/LebJe/TOMLKit.git", from: "0.6.0"),
+        .package(path: "Packages/BoundaryLabeling"),
     ],
     targets: [
         .target(
             name: "UnmouseCore",
             dependencies: [
                 .product(name: "TOMLKit", package: "TOMLKit"),
+                "BoundaryLabeling",
             ],
             path: "Sources/UnmouseCore",
             resources: [

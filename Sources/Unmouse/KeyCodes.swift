@@ -187,7 +187,40 @@ enum KeyCodes {
     }
 
     static func token(for kind: KeyKind) -> String {
-        String(describing: kind)
+        // Stable — do not use String(describing:), Character dumps are not reliable keys.
+        switch kind {
+        case .letter(let c): return "L:\(String(c).lowercased())"
+        case .digit(let c): return "D:\(c)"
+        case .punctuation(let c): return "P:\(c)"
+        case .space: return "space"
+        case .return: return "return"
+        case .escape: return "escape"
+        case .tab: return "tab"
+        case .delete: return "delete"
+        case .forwardDelete: return "forwardDelete"
+        case .left: return "left"
+        case .right: return "right"
+        case .up: return "up"
+        case .down: return "down"
+        case .home: return "home"
+        case .end: return "end"
+        case .pageUp: return "pageUp"
+        case .pageDown: return "pageDown"
+        case .function(let n): return "F\(n)"
+        case .command: return "command"
+        case .commandLeft: return "commandLeft"
+        case .commandRight: return "commandRight"
+        case .option: return "option"
+        case .optionLeft: return "optionLeft"
+        case .optionRight: return "optionRight"
+        case .shift: return "shift"
+        case .shiftLeft: return "shiftLeft"
+        case .shiftRight: return "shiftRight"
+        case .control: return "control"
+        case .controlLeft: return "controlLeft"
+        case .controlRight: return "controlRight"
+        case .fn: return "fn"
+        }
     }
 }
 

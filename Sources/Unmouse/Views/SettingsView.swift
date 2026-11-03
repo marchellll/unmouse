@@ -2,38 +2,725 @@ import AppKit
 import SwiftUI
 import UnmouseCore
 
+private enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
+    case global = "Global"
+    case grid = "Grid"
+    case free = "Free"
+    case hint = "Hint"
+    case presets = "Presets"
+
+    var id: String { rawValue }
+}
+
 struct SettingsView: View {
     @Bindable var model: AppModel
+    @State private var pane: SettingsPane = .global
 
     var body: some View {
-        Form {
-            Section("Grid preview") {
-                GridPreview(config: model.config)
-                    .frame(height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+        NavigationSplitView {
+            List(SettingsPane.allCases, selection: $pane) { item in
+                Text(item.rawValue).tag(item)
             }
-            Section("Colors") {
-                LabeledContent("Blend", value: model.config.colors.gridBlend.rawValue)
-                LabeledContent("Line", value: model.config.colors.line)
-                LabeledContent("Label", value: model.config.colors.label)
+            .navigationSplitViewColumnWidth(min: 140, ideal: 160, max: 200)
+        } detail: {
+            Form {
+                switch pane {
+                case .global: globalPane
+                case .grid: gridPane
+                case .free: freePane
+                case .hint: hintPane
+                case .presets: presetsPane
+                }
+                if let err = model.configError {
+                    Section("Validation") {
+                        Text(err).foregroundStyle(.red).font(.caption)
+                    }
+                }
             }
-            Section("Bindings") {
-                bindingGroup("Global", model.config.bindings.global.gridMode + model.config.bindings.global.freeMode + model.config.bindings.global.hintMode)
-                bindingGroup("Grid left click", model.config.bindings.grid.leftClick)
-                bindingGroup("Free move left", model.config.bindings.free.moveLeft)
-            }
-            Section("Input") {
-                LabeledContent("Karabiner", value: model.config.input.karabiner ? "on" : "off")
-                LabeledContent("Status", value: model.karabinerStatus.rawValue)
-            }
+            .formStyle(.grouped)
+            .padding(8)
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 480, minHeight: 420)
-        .padding()
+        .frame(minWidth: 720, minHeight: 520)
     }
 
-    private func bindingGroup(_ title: String, _ keys: [String]) -> some View {
-        LabeledContent(title, value: keys.joined(separator: ", "))
+    private func commit() {
+        model.commitConfigEdits()
+    }
+
+    private func bind(_ title: String, _ binding: Binding<[String]>, hint: String? = nil, conflicts: Bool = false) -> some View {
+        KeystrokeCaptureRow(title: title, hint: hint, shortcuts: binding, conflicts: conflicts, onChange: commit)
+    }
+
+    /// A bare grid shortcut whose key is also a cell letter. That key cannot both type and act.
+    private func overlapsGridChars(_ shortcuts: [String]) -> Bool {
+        let chars = Set(model.config.grid.chars.lowercased())
+        return shortcuts.contains { raw in
+            guard let sc = try? ShortcutParser.parse(raw),
+                  sc.modifiers.isEmpty,
+                  let c = sc.key.character
+            else { return false }
+            return chars.contains(c)
+        }
+    }
+
+    // MARK: Panes
+
+    @ViewBuilder private var globalPane: some View {
+
+        Section("Mode shortcuts") {
+            bind("Grid mode", global(\.gridMode), hint: "Tap to open the grid on the screen under the pointer. The same tap while dragging opens the grid and keeps the drag.")
+            bind("Free mode", global(\.freeMode), hint: "Tap to drive the pointer from the keyboard. Tap again to leave. On a finished grid cell, this jumps there and enters free mode.")
+            bind("Hint mode", global(\.hintMode), hint: "Labels clickable controls on screen. Type a label to arm it, then confirm.")
+        }
+        Section("Input") {
+            SteppedIntRow(
+                "Alone-tap max",
+                unit: "ms",
+                value: tapMaxMsBinding,
+                range: 50...800,
+                hint: "How long a bare ⌘ or ⌥ can be held and still count as a tap that opens grid or free mode. A longer hold is left for the app underneath."
+            )
+            SteppedDoubleRow(
+                "Mode idle timeout",
+                unit: "s",
+                value: modeTimeoutBinding,
+                step: 1,
+                hint: "Leaves grid, free, or hint after this many seconds without a key. 0 stays until you cancel."
+            )
+            optionHint("Log level", hint: "How much Unmouse writes to the log. None writes nothing.") {
+                menuPicker(logLevelBinding) {
+                    ForEach(LogLevel.allCases, id: \.self) { level in
+                        Text(level.rawValue).tag(level)
+                    }
+                }
+            }
+            optionHint(
+                "Karabiner",
+                hint: "Keys still arrive while another app has Secure Input, such as a password field. Off listens with the event tap only."
+            ) {
+                menuPicker(karabinerBinding) {
+                    Text("On").tag(true)
+                    Text("Off").tag(false)
+                }
+            }
+            optionHint("Status", hint: "Where key events are coming from right now.") {
+                Text(model.karabinerStatus.rawValue)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var gridPane: some View {
+        Section("Live preview") {
+            GridPreview(config: model.config)
+                .frame(height: 180)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(Checkerboard().clipShape(RoundedRectangle(cornerRadius: 8)))
+        }
+        Section("Layout") {
+            SteppedIntRow("Rows", value: gridInt(\.rows, 1...16), hint: "Rows and columns stay equal so every nested cell keeps the screen's shape. Edit either one to override.")
+            SteppedIntRow("Cols", value: gridInt(\.cols, 1...16), hint: "Rows and columns stay equal so every nested cell keeps the screen's shape. Edit either one to override.")
+            optionHint(
+                "Fit display",
+                hint: "Sets the grid and the subgrid from the display under the pointer. Both get the same count, so two passes leave a cell small enough to hit."
+            ) {
+                Button("Recalculate") { model.recalculateGridDimensions() }
+            }
+            SteppedIntRow(
+                "Depth",
+                value: gridInt(\.depth, 1...3),
+                hint: "How many finer grids a finished cell can open. The last character of a cell draws the next grid immediately. Space clicks the rectangle chosen so far."
+            )
+            optionHint(
+                "Chars",
+                hint: "Each cell shows two characters, or three when the alphabet is too small to name every cell in two. Cells that share a first character form one rectangle. That key selects it, and space clicks its center. Later characters narrow to one cell."
+            ) {
+                trailingField(gridString(\.chars))
+            }
+        }
+        Section("Subgrid") {
+            SteppedIntRow(
+                "Rows",
+                value: gridInt(\.subRows, 1...16),
+                hint: "Rows of the second grid, and of the third when depth is 3."
+            )
+            SteppedIntRow(
+                "Cols",
+                value: gridInt(\.subCols, 1...16),
+                hint: "Columns of those deeper grids. When the alphabet has a character for every cell, each cell is one key."
+            )
+            SteppedDoubleRow(
+                "Font size",
+                unit: "pt",
+                value: gridDouble(\.subFontSize, 8...48),
+                step: 1,
+                hint: "Point size of the letters on those deeper grids."
+            )
+            HexColorPicker(
+                title: "Font color",
+                hint: "Color of the letters on the second and third grids.",
+                hex: gridString(\.subLabel),
+                onChange: commit
+            )
+            HexColorPicker(
+                title: "Glow",
+                hint: "Soft light around the letters on the second and third grids. A fully clear color, or a radius of 0, turns it off.",
+                hex: gridString(\.subGlow),
+                onChange: commit
+            )
+            SteppedDoubleRow(
+                "Glow radius",
+                unit: "pt",
+                value: gridDouble(\.subGlowRadius, 0...32),
+                step: 0.5,
+                hint: "How far that light spreads. 0 turns the glow off."
+            )
+        }
+        Section("Text") {
+            optionHint(
+                "Font",
+                hint: "Typeface of the cell letters. system is a monospaced system font. Each other name is drawn in that face."
+            ) {
+                FontFacePicker(name: gridString(\.font))
+            }
+        }
+        Section("Colors") {
+            optionHint(
+                "Blend",
+                hint: "How grid lines and letters mix with the desktop. Exclusion and difference stay readable on light and dark backgrounds. Normal paints the color as itself."
+            ) {
+                menuPicker(blendBinding(\.gridBlend)) {
+                    ForEach(GridBlend.allCases, id: \.self) { b in
+                        Text(b.rawValue).tag(b)
+                    }
+                }
+            }
+            HexColorPicker(title: "Background", hint: "Kept in the config. The grid overlay stays clear so the desktop shows through.", hex: colorHex(\.background), onChange: commit)
+            HexColorPicker(title: "Line", hex: colorHex(\.line), onChange: commit)
+            HexColorPicker(title: "Label", hex: colorHex(\.label), onChange: commit)
+            HexColorPicker(
+                title: "Label outline",
+                hint: "Stroke around the cell letters. A fully clear color, or a width of 0, turns it off. The stroke uses the same blend as the letters.",
+                hex: gridString(\.labelOutline),
+                onChange: commit
+            )
+            SteppedDoubleRow(
+                "Outline width",
+                unit: "pt",
+                value: gridDouble(\.labelOutlineWidth, 0...12),
+                step: 0.5,
+                hint: "Thickness of that stroke, in points. 0 turns the outline off."
+            )
+            HexColorPicker(title: "Highlight", hint: "Stroke drawn around the selected grid cell.", hex: colorHex(\.highlight), onChange: commit)
+            HexColorPicker(
+                title: "Selection dim",
+                hint: "Darkens everything except the chosen cell. A fully clear color, #00000000, turns the darken off.",
+                hex: gridString(\.selectionDim),
+                onChange: commit
+            )
+            SteppedIntRow(
+                "Selection blur",
+                unit: "pt",
+                value: gridInt(\.selectionBlur, 0...40),
+                hint: "Blurs the desktop under that darkened area. 0 turns the blur off. The chosen cell stays sharp."
+            )
+        }
+        Section("Shortcuts") {
+            bind("Back", gridBind(\.back), hint: "Undoes one step: clears a selected cell, then one typed character, then one nested level.", conflicts: overlapsGridChars(model.config.bindings.grid.back))
+            bind("Left click", gridBind(\.leftClick), hint: "Clicks the selected rectangle and leaves the grid. Press it again within the system double-click time to double-click. A held drag is released there instead of a new click.", conflicts: overlapsGridChars(model.config.bindings.grid.leftClick))
+            bind("Right click", gridBind(\.rightClick), hint: "With a cell selected, moves there, right-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.rightClick))
+            bind("Middle click", gridBind(\.middleClick), hint: "With a cell selected, moves there, middle-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.middleClick))
+            bind("Move only", gridBind(\.moveOnly), hint: "Moves the pointer to the selected cell and leaves without clicking.", conflicts: overlapsGridChars(model.config.bindings.grid.moveOnly))
+            bind("To free", gridBind(\.toFree), hint: "Moves to the selected cell and switches into free mode.", conflicts: overlapsGridChars(model.config.bindings.grid.toFree))
+            bind("Cancel", gridBind(\.cancel), hint: "Leaves the grid. If a drag is held, stays in free mode and keeps the drag.", conflicts: overlapsGridChars(model.config.bindings.grid.cancel))
+            bind("Next screen", gridBind(\.nextScreen), hint: "Moves the grid to the next display.", conflicts: overlapsGridChars(model.config.bindings.grid.nextScreen))
+        }
+    }
+
+    @ViewBuilder private var freePane: some View {
+        Section("Motion") {
+            SteppedDoubleRow("Cursor speed", unit: "pt/s", value: freeDouble(\.speed), step: 20, hint: "How fast the pointer travels while a move key is held.")
+            SteppedDoubleRow("Fast multiplier", unit: "×", value: freeDouble(\.fastMultiplier), step: 0.25, hint: "Multiplies cursor speed while Faster is held.")
+            SteppedDoubleRow("Slow multiplier", unit: "×", value: freeDouble(\.slowMultiplier), step: 0.05, hint: "Multiplies cursor speed while Slower is held.")
+            SteppedDoubleRow("Scroll speed", unit: "lines/s", value: freeDouble(\.scrollSpeed), step: 1, hint: "How fast a held scroll key rolls the view. One line is 16 points, sent continuously while the key is held.")
+        }
+        Section("Halo") {
+            optionHint(
+                "Attention",
+                hint: "None holds the halo still. Pulse and breathe grow and shrink. Ping expands and fades out, then repeats."
+            ) {
+                menuPicker(freeAttention) {
+                    ForEach(HaloAttention.allCases, id: \.self) { a in
+                        Text(a.rawValue).tag(a)
+                    }
+                }
+            }
+            SteppedDoubleRow("Attention period", unit: "s", value: freeDouble(\.haloAttentionPeriod), step: 0.1, hint: "Seconds for one halo animation cycle. Lower is faster.")
+            SteppedDoubleRow("Attention scale", unit: "×", value: freeDouble(\.haloAttentionScale), step: 0.1, hint: "How large the halo grows compared with the dot.")
+            CartesianRow(
+                "Offset (x, y)",
+                x: haloOffsetX,
+                y: haloOffsetY,
+                hint: "Where the halo sits relative to the pointer, in points. Cartesian: +x is right, +y is up."
+            )
+        }
+        Section("Colors") {
+            optionHint(
+                "Blend",
+                hint: "How the free-mode dot and halo mix with the desktop. Exclusion and difference stay readable on light and dark backgrounds. Normal paints the color as itself."
+            ) {
+                menuPicker(blendBinding(\.freeDotBlend)) {
+                    ForEach(GridBlend.allCases, id: \.self) { b in
+                        Text(b.rawValue).tag(b)
+                    }
+                }
+            }
+            HexColorPicker(title: "Dot", hex: colorHex(\.freeDot), onChange: commit)
+            HexColorPicker(title: "Halo", hint: "Color of the ring around the free-mode dot.", hex: colorHex(\.freeDotHalo), onChange: commit)
+        }
+        Section("Shortcuts") {
+            bind("Move left", freeBind(\.moveLeft))
+            bind("Move down", freeBind(\.moveDown))
+            bind("Move up", freeBind(\.moveUp))
+            bind("Move right", freeBind(\.moveRight))
+            bind("Faster", freeBind(\.faster), hint: "Hold to apply the fast multiplier. Releasing returns to normal speed.")
+            bind("Slower", freeBind(\.slower), hint: "Hold to apply the slow multiplier. Releasing returns to normal speed.")
+            bind("Scroll up", freeBind(\.scrollUp))
+            bind("Scroll down", freeBind(\.scrollDown))
+            bind("Scroll left", freeBind(\.scrollLeft))
+            bind("Scroll right", freeBind(\.scrollRight))
+            bind("Toggle drag", freeBind(\.toggleDrag), hint: "Presses the left button and holds it, so the pointer drags. Press again to release.")
+            bind("Left click", freeBind(\.leftClick), hint: "Left-clicks and stays in free mode. Press it again within the system double-click time to double-click. A held drag is released instead of a new click.")
+            bind("Right click", freeBind(\.rightClick), hint: "Right-clicks and stays in free mode.")
+            bind("Middle click", freeBind(\.middleClick), hint: "Middle-clicks and stays in free mode.")
+            bind("Cancel", freeBind(\.cancel), hint: "Leaves free mode. A held drag is released first.")
+        }
+    }
+
+    @ViewBuilder private var hintPane: some View {
+        Section("Layout") {
+            optionHint(
+                "Chars",
+                hint: "Alphabet for hint labels. A control prefers a letter from its name when that letter is here; otherwise it gets the next free letter, then a two-letter code."
+            ) {
+                trailingField(hintChars)
+            }
+        }
+        Section("Colors") {
+            HexColorPicker(title: "Fill", hint: "Fill of each hint bubble.", hex: colorHex(\.hintFill), onChange: commit)
+            HexColorPicker(title: "Text", hex: colorHex(\.hintText), onChange: commit)
+            HexColorPicker(title: "Line", hint: "Border of each hint bubble.", hex: colorHex(\.hintLine), onChange: commit)
+        }
+        Section("Shortcuts") {
+            bind("Left click", hintBind(\.leftClick), hint: "On an exact label match, moves to that control, left-clicks, and leaves hint mode. Press it again within the system double-click time to double-click.")
+            bind("Right click", hintBind(\.rightClick), hint: "On an exact label match, moves there, right-clicks, and leaves hint mode.")
+            bind("Move no action", hintBind(\.moveNoAction), hint: "On an exact label match, moves the pointer onto that control and leaves without clicking.")
+            bind("To free", hintBind(\.toFree), hint: "On an exact label match, moves onto that control and switches into free mode so you can nudge or click from there.")
+            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer.")
+            bind("Back", hintBind(\.back), hint: "Deletes the last character of the label you are typing.")
+        }
+    }
+
+    @ViewBuilder private var presetsPane: some View {
+        Section("Layout preset") {
+            optionHint(
+                "Preset",
+                hint: "Replaces your config, including shortcuts and colors, with that example."
+            ) {
+                menuPicker(Binding(
+                    get: { model.selectedPresetName },
+                    set: { name in
+                        model.selectedPresetName = name
+                        if let preset = model.presets.first(where: { $0.name == name }) {
+                            model.applyPreset(preset)
+                        }
+                    }
+                )) {
+                    ForEach(model.presets) { preset in
+                        Text(preset.name).tag(preset.name)
+                    }
+                }
+            }
+            Button("Open config.toml") { model.editConfig() }
+        }
+    }
+
+    // MARK: Bindings into model.config
+
+    private var karabinerBinding: Binding<Bool> {
+        Binding(
+            get: { model.config.input.karabiner },
+            set: { model.config.input.karabiner = $0; commit() }
+        )
+    }
+
+    private var tapMaxMsBinding: Binding<Int> {
+        Binding(
+            get: { model.config.input.tapMaxMs },
+            set: {
+                model.config.input.tapMaxMs = min(max($0, 50), 800)
+                commit()
+            }
+        )
+    }
+
+    private var modeTimeoutBinding: Binding<Double> {
+        Binding(
+            get: { model.config.input.modeTimeoutS },
+            set: {
+                model.config.input.modeTimeoutS = min(max($0, 0), 600)
+                commit()
+            }
+        )
+    }
+
+    private var logLevelBinding: Binding<LogLevel> {
+        Binding(
+            get: { model.config.log.level },
+            set: { model.config.log.level = $0; commit() }
+        )
+    }
+
+    private var freeAttention: Binding<HaloAttention> {
+        Binding(
+            get: { model.config.free.haloAttention },
+            set: { model.config.free.haloAttention = $0; commit() }
+        )
+    }
+
+    private var hintChars: Binding<String> {
+        Binding(
+            get: { model.config.hint.chars },
+            set: { model.config.hint.chars = $0; commit() }
+        )
+    }
+
+    private func blendBinding(_ keyPath: WritableKeyPath<ColorsConfig, GridBlend>) -> Binding<GridBlend> {
+        Binding(
+            get: { model.config.colors[keyPath: keyPath] },
+            set: { model.config.colors[keyPath: keyPath] = $0; commit() }
+        )
+    }
+
+    private func colorHex(_ keyPath: WritableKeyPath<ColorsConfig, String>) -> Binding<String> {
+        Binding(
+            get: { model.config.colors[keyPath: keyPath] },
+            set: { model.config.colors[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func gridString(_ keyPath: WritableKeyPath<GridConfig, String>) -> Binding<String> {
+        Binding(
+            get: { model.config.grid[keyPath: keyPath] },
+            set: { model.config.grid[keyPath: keyPath] = $0; commit() }
+        )
+    }
+
+    private func gridInt(_ keyPath: WritableKeyPath<GridConfig, Int>, _ range: ClosedRange<Int>) -> Binding<Int> {
+        Binding(
+            get: { model.config.grid[keyPath: keyPath] },
+            set: {
+                model.config.grid[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound)
+                commit()
+            }
+        )
+    }
+
+    private func gridDouble(_ keyPath: WritableKeyPath<GridConfig, Double>, _ range: ClosedRange<Double>) -> Binding<Double> {
+        Binding(
+            get: { model.config.grid[keyPath: keyPath] },
+            set: {
+                model.config.grid[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound)
+                commit()
+            }
+        )
+    }
+
+    private func freeDouble(_ keyPath: WritableKeyPath<FreeConfig, Double>) -> Binding<Double> {
+        Binding(
+            get: { model.config.free[keyPath: keyPath] },
+            set: { model.config.free[keyPath: keyPath] = $0; commit() }
+        )
+    }
+
+    private var haloOffsetX: Binding<Double> {
+        Binding(
+            get: { model.config.free.haloOffset.x },
+            set: { model.config.free.haloOffset.x = $0; commit() }
+        )
+    }
+
+    private var haloOffsetY: Binding<Double> {
+        Binding(
+            get: { model.config.free.haloOffset.y },
+            set: { model.config.free.haloOffset.y = $0; commit() }
+        )
+    }
+
+    /// Title and hint on the left. The control stays vertically centered on the right.
+    private func optionHint<Control: View>(
+        _ title: String,
+        hint: String,
+        @ViewBuilder control: () -> Control
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            OptionLabel(title: title, hint: hint)
+                .frame(maxWidth: 280, alignment: .leading)
+            Spacer(minLength: 8)
+            control()
+        }
+        .help(hint)
+    }
+
+    private func menuPicker<Selection: Hashable, Content: View>(
+        _ selection: Binding<Selection>,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        Picker("", selection: selection, content: content)
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .fixedSize()
+    }
+
+    private func trailingField(_ text: Binding<String>) -> some View {
+        TextField("", text: text)
+            .font(.system(.body, design: .monospaced))
+            .multilineTextAlignment(.trailing)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 200)
+    }
+
+    private func global(_ keyPath: WritableKeyPath<GlobalBindings, [String]>) -> Binding<[String]> {
+        Binding(
+            get: { model.config.bindings.global[keyPath: keyPath] },
+            set: { model.config.bindings.global[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func gridBind(_ keyPath: WritableKeyPath<GridBindings, [String]>) -> Binding<[String]> {
+        Binding(
+            get: { model.config.bindings.grid[keyPath: keyPath] },
+            set: { model.config.bindings.grid[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func freeBind(_ keyPath: WritableKeyPath<FreeBindings, [String]>) -> Binding<[String]> {
+        Binding(
+            get: { model.config.bindings.free[keyPath: keyPath] },
+            set: { model.config.bindings.free[keyPath: keyPath] = $0 }
+        )
+    }
+
+    private func hintBind(_ keyPath: WritableKeyPath<HintBindings, [String]>) -> Binding<[String]> {
+        Binding(
+            get: { model.config.bindings.hint[keyPath: keyPath] },
+            set: { model.config.bindings.hint[keyPath: keyPath] = $0 }
+        )
+    }
+}
+
+private struct SteppedIntRow: View {
+    let title: String
+    var unit: String?
+    @Binding var value: Int
+    var range: ClosedRange<Int>?
+    var hint: String?
+
+    init(_ title: String, unit: String? = nil, value: Binding<Int>, range: ClosedRange<Int>? = nil, hint: String? = nil) {
+        self.title = title
+        self.unit = unit
+        self._value = value
+        self.range = range
+        self.hint = hint
+    }
+
+    var body: some View {
+        Group {
+            if let hint, !hint.isEmpty {
+                HStack(alignment: .center, spacing: 12) {
+                    OptionLabel(title: title, hint: hint)
+                        .frame(maxWidth: 280, alignment: .leading)
+                    Spacer(minLength: 8)
+                    valueText
+                    Stepper("", value: $value, in: range ?? 0...10_000)
+                        .labelsHidden()
+                }
+            } else {
+                Stepper(value: $value, in: range ?? 0...10_000) {
+                    HStack {
+                        Text(title)
+                        Spacer()
+                        valueText
+                    }
+                }
+            }
+        }
+        .modifier(OptionalHelp(hint: hint))
+    }
+
+    private var valueText: some View {
+        Group {
+            if let unit {
+                Text("\(value) \(unit)").monospacedDigit().foregroundStyle(.secondary)
+            } else {
+                Text("\(value)").monospacedDigit()
+            }
+        }
+    }
+}
+
+private struct SteppedDoubleRow: View {
+    let title: String
+    var unit: String?
+    @Binding var value: Double
+    var step: Double
+    var hint: String?
+
+    init(_ title: String, unit: String? = nil, value: Binding<Double>, step: Double, hint: String? = nil) {
+        self.title = title
+        self.unit = unit
+        self._value = value
+        self.step = step
+        self.hint = hint
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if let hint, !hint.isEmpty {
+                OptionLabel(title: title, hint: hint)
+                    .frame(maxWidth: 280, alignment: .leading)
+            } else {
+                Text(title)
+            }
+            Spacer(minLength: 8)
+            Text(value, format: .number.precision(.fractionLength(2)))
+                .monospacedDigit()
+                .frame(width: 56, alignment: .trailing)
+            if let unit {
+                Text(unit)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 52, alignment: .leading)
+            }
+            Stepper("", value: $value, step: step)
+                .labelsHidden()
+        }
+        .modifier(OptionalHelp(hint: hint))
+    }
+}
+
+private struct CartesianRow: View {
+    let title: String
+    @Binding var x: Double
+    @Binding var y: Double
+    var hint: String?
+
+    init(_ title: String, x: Binding<Double>, y: Binding<Double>, hint: String? = nil) {
+        self.title = title
+        self._x = x
+        self._y = y
+        self.hint = hint
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            OptionLabel(title: title, hint: hint)
+                .frame(maxWidth: 280, alignment: .leading)
+            Spacer(minLength: 8)
+            Text("x")
+                .foregroundStyle(.secondary)
+            Text(x, format: .number.precision(.fractionLength(0)))
+                .monospacedDigit()
+                .frame(width: 40, alignment: .trailing)
+            Stepper("", value: $x, step: 1)
+                .labelsHidden()
+            Text("y")
+                .foregroundStyle(.secondary)
+            Text(y, format: .number.precision(.fractionLength(0)))
+                .monospacedDigit()
+                .frame(width: 40, alignment: .trailing)
+            Stepper("", value: $y, step: 1)
+                .labelsHidden()
+        }
+        .modifier(OptionalHelp(hint: hint))
+    }
+}
+
+/// Menu of installed faces. Each row is drawn in that face. `system` stays first.
+private struct FontFacePicker: View {
+    @Binding var name: String
+
+    private struct Face: Identifiable, Hashable {
+        var postScript: String
+        var label: String
+        var id: String { postScript }
+    }
+
+    private static let installed: [Face] = {
+        var seen = Set<String>(["system"])
+        var faces = [Face(postScript: "system", label: "system")]
+        let manager = NSFontManager.shared
+        let families = manager.availableFontFamilies.sorted {
+            $0.localizedCaseInsensitiveCompare($1) == .orderedAscending
+        }
+        for family in families {
+            for member in manager.availableMembers(ofFontFamily: family) ?? [] {
+                guard member.count >= 2,
+                      let postScript = member[0] as? String,
+                      let label = member[1] as? String,
+                      seen.insert(postScript).inserted
+                else { continue }
+                faces.append(Face(postScript: postScript, label: label))
+            }
+        }
+        return faces
+    }()
+
+    private var selection: Binding<String> {
+        Binding(
+            get: {
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? "system" : trimmed
+            },
+            set: { name = $0 }
+        )
+    }
+
+    private var faces: [Face] {
+        let current = selection.wrappedValue
+        if Self.installed.contains(where: { $0.postScript == current }) {
+            return Self.installed
+        }
+        return [Face(postScript: current, label: current)] + Self.installed
+    }
+
+    var body: some View {
+        Picker("", selection: selection) {
+            ForEach(faces) { face in
+                Text(face.label)
+                    .font(GridOverlayView.labelFont(name: face.postScript, size: 13))
+                    .tag(face.postScript)
+            }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+    }
+}
+
+private struct Checkerboard: View {
+    var body: some View {
+        Canvas { context, size in
+            let n: CGFloat = 10
+            for y in stride(from: 0, to: size.height, by: n) {
+                for x in stride(from: 0, to: size.width, by: n) {
+                    let odd = Int((x + y) / n) % 2 == 0
+                    context.fill(
+                        Path(CGRect(x: x, y: y, width: n, height: n)),
+                        with: .color(odd ? Color(white: 0.25) : Color(white: 0.35))
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -49,7 +736,7 @@ struct GridPreview: View {
             let labels = GridLabels.labels(chars: config.grid.chars, rows: rows, cols: cols)
             let line = Color(hex: config.colors.line) ?? .white
             let label = Color(hex: config.colors.label) ?? .white
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black.opacity(0.35)))
+            let outlineWidth = CGFloat(config.grid.labelOutlineWidth)
             for r in 0...rows {
                 var p = Path()
                 p.move(to: CGPoint(x: 0, y: CGFloat(r) * cellH))
@@ -65,8 +752,18 @@ struct GridPreview: View {
             for (i, text) in labels.enumerated() {
                 let row = i / cols
                 let col = i % cols
+                let shown = GridLabels.clumpText(text)
+                let font = GridLinesView.nsFont(name: config.grid.font, size: 10)
+                let fill = NSColor(label).usingColorSpace(.sRGB) ?? NSColor(label)
+                let attr = GridLinesView.labelString(
+                    shown,
+                    font: font,
+                    fill: fill,
+                    outlineHex: config.grid.labelOutline,
+                    outlineWidth: outlineWidth
+                )
                 context.draw(
-                    Text(text).font(.system(size: 10, design: .monospaced)).foregroundColor(label),
+                    Text(AttributedString(attr)),
                     at: CGPoint(x: CGFloat(col) * cellW + cellW / 2, y: CGFloat(row) * cellH + cellH / 2),
                     anchor: .center
                 )
@@ -94,8 +791,9 @@ final class SettingsWindowController {
             let hosting = NSHostingController(rootView: SettingsView(model: model))
             let window = NSWindow(contentViewController: hosting)
             window.title = "Unmouse Settings"
-            window.styleMask = [.titled, .closable, .resizable]
-            window.setContentSize(NSSize(width: 520, height: 480))
+            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
+            window.setContentSize(NSSize(width: 800, height: 600))
+            window.center()
             self.window = window
         }
         window?.makeKeyAndOrderFront(nil)
@@ -108,7 +806,6 @@ final class WalkthroughWindowController {
     static let shared = WalkthroughWindowController()
     private var window: NSWindow?
 
-    /// Show at most one walkthrough window. Safe to call from a poll timer.
     func show(model: AppModel) {
         if let window, window.isVisible {
             return

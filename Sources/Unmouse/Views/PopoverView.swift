@@ -40,17 +40,6 @@ struct PopoverView: View {
 
             Divider()
 
-            Text("Presets")
-                .font(.caption.weight(.semibold))
-            ForEach(model.presets) { preset in
-                Button(preset.name) {
-                    model.applyPreset(preset)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Divider()
-
             Menu("Tutorial") {
                 Button("Install walkthrough") { model.showWalkthrough = true }
                 ForEach(TutorialSessionID.allCases, id: \.self) { session in
@@ -59,11 +48,11 @@ struct PopoverView: View {
             }
 
             Toggle("Coach", isOn: $model.coachEnabled)
+                .help("While a mode is on, shows what you can do next.")
                 .onChange(of: model.coachEnabled) { _, _ in
-                    // overlay updates via model observation in app delegate tick
+                    model.overlayController?.updateCoach()
                 }
 
-            Button("Edit config.toml") { model.editConfig() }
             Button("Settings…") { SettingsWindowController.shared.show(model: model) }
             Button("Quit Unmouse") { NSApp.terminate(nil) }
         }

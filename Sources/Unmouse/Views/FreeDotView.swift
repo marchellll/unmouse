@@ -1,19 +1,144 @@
+import AppKit
+import QuartzCore
 import SwiftUI
+import UnmouseCore
 
-struct FreeDotView: View {
-    @Bindable var model: AppModel
+/// Halo scale is written onto the layer itself each frame.
+/// A parent compositing filter draws the model layer, so a Core Animation
+/// presentation (CABasicAnimation) stays frozen at the start scale.
+final class FreeDotView: NSView {
+    private let halo = CAShapeLayer()
+    private let ring = CAShapeLayer()
+    private let core = CAShapeLayer()
+    private let dragDot = CAShapeLayer()
+    private var signature: Signature?
+    private var dragHidden = true
 
-    var body: some View {
-        Canvas { context, size in
-            let fill = Color(hex: model.config.colors.freeDot) ?? .white
-            let halo = Color(hex: model.config.colors.freeDotHalo) ?? .black
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            context.fill(Path(ellipseIn: CGRect(x: center.x - 5, y: center.y - 5, width: 10, height: 10)), with: .color(halo.opacity(0.7)))
-            context.fill(Path(ellipseIn: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6)), with: .color(fill))
-            if model.dragging {
-                context.fill(Path(ellipseIn: CGRect(x: center.x - 1.5, y: center.y - 1.5, width: 3, height: 3)), with: .color(fill))
-            }
+    private struct Signature: Equatable {
+        var attention: HaloAttention
+        var period: Double
+        var scale: Double
+        var fill: String
+        var halo: String
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layerContentsRedrawPolicy = .never
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    func apply(free: FreeConfig, fillHex: String, haloHex: String, dragging: Bool) {
+        let next = Signature(
+            attention: free.haloAttention,
+            period: free.haloAttentionPeriod,
+            scale: free.haloAttentionScale,
+            fill: fillHex,
+            halo: haloHex
+        )
+        if next != signature {
+            signature = next
+            install(next)
         }
-        .allowsHitTesting(false)
+        let hideDrag = !dragging
+        if dragHidden != hideDrag {
+            dragHidden = hideDrag
+            dragDot.isHidden = hideDrag
+        }
+        pose(next, time: CACurrentMediaTime())
+    }
+
+    private func install(_ sig: Signature) {
+        let fill = Self.cgColor(sig.fill)
+        let haloColor = Self.cgColor(sig.halo)
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+
+        circle(halo, diameter: 6, fill: haloColor, center: center)
+        circle(ring, diameter: 6 * 1.15, fill: nil, center: center)
+        ring.strokeColor = haloColor
+        ring.lineWidth = 1.5
+        circle(core, diameter: 6, fill: fill, center: center)
+        circle(dragDot, diameter: 3, fill: fill, center: center)
+        dragDot.isHidden = dragHidden
+
+        guard let root = layer else { return }
+        if halo.superlayer == nil {
+            root.addSublayer(halo)
+            root.addSublayer(ring)
+            root.addSublayer(core)
+            root.addSublayer(dragDot)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for layer in [halo, ring, core, dragDot] {
+            layer.position = center
+        }
+        CATransaction.commit()
+    }
+
+    private func circle(_ layer: CAShapeLayer, diameter: CGFloat, fill: CGColor?, center: CGPoint) {
+        layer.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        layer.position = center
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.path = CGPath(ellipseIn: layer.bounds, transform: nil)
+        layer.fillColor = fill
+        layer.strokeColor = nil
+        layer.lineWidth = 0
+    }
+
+    /// ponytail: sampled on the free-mode display link. Upgrade path is a keyframe if the cosine looks wrong.
+    private func pose(_ sig: Signature, time: CFTimeInterval) {
+        let period = max(0.2, sig.period)
+        let peak = CGFloat(max(1.2, sig.scale))
+        let phase = time.truncatingRemainder(dividingBy: period) / period
+        let cosine = CGFloat(0.5 - 0.5 * cos(phase * 2 * .pi))
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        switch sig.attention {
+        case .none:
+            ring.isHidden = true
+            pin(halo, scale: 1.6, opacity: 0.55)
+        case .pulse:
+            ring.isHidden = false
+            pin(halo, scale: lerp(1.4, peak, cosine), opacity: lerp(0.75, 0.35, cosine))
+            pin(ring, scale: lerp(1.4, peak, cosine), opacity: lerp(0.525, 0.245, cosine))
+        case .ping:
+            ring.isHidden = false
+            let saw = CGFloat(phase)
+            pin(halo, scale: lerp(1.2, peak, saw), opacity: lerp(0.7, 0, saw))
+            pin(ring, scale: lerp(1.2, peak, saw), opacity: lerp(0.49, 0, saw))
+        case .breathe:
+            ring.isHidden = true
+            pin(halo, scale: lerp(1.5, 1.85, cosine), opacity: lerp(0.3, 0.75, cosine))
+        }
+        CATransaction.commit()
+        superview?.layer?.setNeedsDisplay()
+    }
+
+    private func pin(_ layer: CALayer, scale: CGFloat, opacity: Float) {
+        layer.transform = CATransform3DMakeScale(scale, scale, 1)
+        layer.opacity = opacity
+    }
+
+    private func lerp(_ from: CGFloat, _ to: CGFloat, _ t: CGFloat) -> CGFloat {
+        from + (to - from) * t
+    }
+
+    private func lerp(_ from: Float, _ to: Float, _ t: CGFloat) -> Float {
+        from + (to - from) * Float(t)
+    }
+
+    private static func cgColor(_ hex: String) -> CGColor {
+        let color = NSColor(Color(hex: hex) ?? .white)
+        return (color.usingColorSpace(.sRGB) ?? color).cgColor
     }
 }

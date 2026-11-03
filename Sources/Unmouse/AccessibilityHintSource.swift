@@ -38,7 +38,7 @@ struct AccessibilityHintSource: HintSource {
 
     nonisolated private static func walk(_ el: AXUIElement, into results: inout [HintTarget], count: inout Int, limit: Int) {
         guard count < limit else { return }
-        if isPressable(el), let frame = frame(of: el), frame.width > 1, frame.height > 1 {
+        if isActionable(el), let frame = frame(of: el), isHintSized(frame) {
             let title = stringAttr(el, kAXTitleAttribute as CFString)
                 ?? stringAttr(el, kAXDescriptionAttribute as CFString)
                 ?? stringAttr(el, kAXRoleDescriptionAttribute as CFString)
@@ -57,28 +57,72 @@ struct AccessibilityHintSource: HintSource {
         }
     }
 
-    nonisolated private static func isPressable(_ el: AXUIElement) -> Bool {
-        var actions: CFArray?
-        if AXUIElementCopyActionNames(el, &actions) == .success,
-           let names = actions as? [String],
-           names.contains(kAXPressAction as String)
-        {
-            return true
-        }
+    /// Buttons / tabs / links / menus — not every Electron text line.
+    nonisolated private static let actionableRoles: Set<String> = [
+        kAXButtonRole as String,
+        "AXLink",
+        kAXCheckBoxRole as String,
+        kAXRadioButtonRole as String,
+        kAXPopUpButtonRole as String,
+        kAXComboBoxRole as String,
+        kAXMenuItemRole as String,
+        kAXMenuBarItemRole as String,
+        kAXMenuButtonRole as String,
+        "AXTab",
+        "AXTabButton",
+        kAXTabGroupRole as String,
+        "AXToolbar",
+        "AXToolbarButton",
+        kAXDisclosureTriangleRole as String,
+        "AXDecrementArrow",
+        "AXIncrementArrow",
+        kAXSliderRole as String,
+        kAXColorWellRole as String,
+        "AXSearchField",
+        kAXTextFieldRole as String, // single-line fields only (sized below)
+    ]
+
+    nonisolated private static let deniedRoles: Set<String> = [
+        kAXStaticTextRole as String,
+        kAXTextAreaRole as String, // editor body / code lines
+        "AXWebArea",
+        kAXScrollAreaRole as String,
+        kAXGroupRole as String,
+        "AXSplitGroup",
+        "AXList",
+        "AXOutline",
+        "AXTable",
+        "AXRow",
+        "AXCell",
+        "AXLayoutArea",
+        "AXLayoutItem",
+        "AXParagraph",
+        "AXInlineText",
+        "AXText",
+    ]
+
+    nonisolated private static func isActionable(_ el: AXUIElement) -> Bool {
         let role = stringAttr(el, kAXRoleAttribute as CFString) ?? ""
-        let roles: Set<String> = [
-            kAXButtonRole as String,
-            "AXLink",
-            kAXTextFieldRole as String,
-            kAXTextAreaRole as String,
-            kAXCheckBoxRole as String,
-            kAXRadioButtonRole as String,
-            kAXPopUpButtonRole as String,
-            kAXComboBoxRole as String,
-            kAXMenuItemRole as String,
-            kAXTabGroupRole as String,
-        ]
-        return roles.contains(role)
+        if deniedRoles.contains(role) { return false }
+        if actionableRoles.contains(role) { return true }
+
+        // Fallback: pressable + not a skinny full-width line (VS Code AX quirk).
+        var actions: CFArray?
+        guard AXUIElementCopyActionNames(el, &actions) == .success,
+              let names = actions as? [String],
+              names.contains(kAXPressAction as String)
+        else { return false }
+        return true
+    }
+
+    /// Drop code-line shaped rects and tiny noise; keep compact controls.
+    nonisolated private static func isHintSized(_ frame: CGRect) -> Bool {
+        guard frame.width > 4, frame.height > 4 else { return false }
+        // Editor lines: short height, very wide.
+        if frame.height <= 28, frame.width > 160 { return false }
+        // Giant panes / whole editor surfaces.
+        if frame.width > 800, frame.height > 200 { return false }
+        return true
     }
 
     nonisolated private static func frame(of el: AXUIElement) -> CGRect? {
