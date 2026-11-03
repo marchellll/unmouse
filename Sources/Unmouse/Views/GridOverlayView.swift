@@ -10,7 +10,6 @@ struct GridOverlayView: View {
             let colors = model.config.colors
             let rows = state.rows
             let cols = state.cols
-            let level = state.currentLevel
             // Drawing in panel-local coords: panel covers screen frame
             let origin = CGPoint.zero
             let cellW = size.width / CGFloat(cols)
