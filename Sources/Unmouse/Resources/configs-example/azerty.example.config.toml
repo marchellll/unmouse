@@ -1,0 +1,97 @@
+[input]
+karabiner = true       # use the virtual keyboard when it is present, including after a later install
+
+[grid]
+rows = 5
+cols = 4
+chars = "azertyuiopqsdfghjklm"
+depth = 2          # 1...3
+selection_dim = "#00000080"   # unselected area; "#00000000" turns the darken off
+selection_blur = 12           # points of behind-window blur on that area; 0 turns blur off
+
+[free]
+speed = 480.0        # points per second
+fast_multiplier = 3.0
+slow_multiplier = 0.25
+scroll_speed = 3.0
+
+[hint]
+chars = "azertyuio;"
+
+[colors]
+background = "#00000000"
+line = "#FFFFFF"
+label = "#FFFFFF"
+highlight = "#FFFFFF"
+grid_blend = "exclusion"   # exclusion | difference | normal | colorBurn | plusLighter
+free_dot = "#FFFFFF"
+free_dot_halo = "#000000"
+hint_fill = "#111111EE"
+hint_text = "#FFFFFF"
+hint_line = "#FFFFFFCC"
+
+# Shortcuts are case-insensitive.
+# One key, or modifiers plus one key joined by +.
+# Tap versus hold belongs to the action: grid_mode taps command_left, faster holds z.
+#
+# Modifiers. Bare command means either side. Left and right are separate keys.
+#   command, command_left, command_right (cmd)
+#   option, option_left, option_right (opt, alt)
+#   shift, shift_left, shift_right
+#   control, control_left, control_right (ctrl)
+#   fn
+#
+# Special keys.
+#   space, return, escape, tab
+#   delete and backspace are the Mac Delete key. forward_delete is the other one.
+#   left, right, up, down
+#   home, end, page_up, page_down
+#   f1 through f20
+#   a letter a-z, a digit 0-9, or one mark: , . / ; ' [ ] \ - =
+#
+# Combos. Modifiers in any order, exactly one non-modifier.
+#   command+shift and h+j are invalid.
+#   command_left                 opens the grid
+#   option_left                  opens free mode
+#   command+shift+space          opens hint mode
+#   ["h", "left"]                one action, two shortcuts
+#   shift+tab                    a combo
+#   ","                          the comma key
+[bindings.global]
+grid_mode = ["command_left"]          # tap
+free_mode = ["option_left"]           # tap
+hint_mode = ["command+shift+space"]
+
+[bindings.grid]
+back = ["delete", "backspace"]
+left_click = ["space"]                # exit and left click; if a drag is held, drop it here instead
+right_click = ["q"]
+middle_click = ["s"]
+move_only = ["d"]            # exit, move the cursor, do not click
+to_free = ["option_left"]
+cancel = ["escape"]
+next_screen = ["tab"]
+
+[bindings.free]
+move_left = ["h", "left"]
+move_down = ["j", "down"]
+move_up = ["k", "up"]
+move_right = ["l", "right"]
+faster = ["w"]                  # hold
+slower = ["x"]                  # hold
+scroll_up = [","]
+scroll_down = [";"]
+scroll_left = [":"]
+scroll_right = ["!"]
+toggle_drag = ["a"]
+left_click = ["space"]                # stays in free mode; if a drag is held, drop it and stay
+right_click = ["q"]
+middle_click = ["s"]
+cancel = ["escape"]
+
+[bindings.hint]
+left_click = ["space"]                # armed hint: click and exit
+right_click = ["q"]        # armed hint: right click and exit
+move_no_action = ["d"]       # armed hint: move, do not click
+cancel = ["escape"]
+back = ["delete", "backspace"]

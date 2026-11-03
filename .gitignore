@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.dSYM
+.DS_Store
+Unmouse.app
+dist/
+*.zip
+.vscode/
