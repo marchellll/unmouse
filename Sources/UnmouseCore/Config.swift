@@ -141,7 +141,7 @@ public struct GridConfig: Codable, Sendable, Equatable {
         subLabel: String = "#FFFFFF",
         subGlow: String = "#FFFFFF",
         subGlowRadius: Double = 8,
-        chars: String = "qwertyuiopasdfghjkl;",
+        chars: String = "qwertyuiopfghjkl;",
         depth: Int = 2,
         selectionDim: String = "#00000080",
         selectionBlur: Int = 12,
@@ -193,10 +193,19 @@ public struct GridConfig: Codable, Sendable, Equatable {
 }
 
 public struct FreeConfig: Codable, Sendable, Equatable {
+    /// Top speed, points per second. The curve scales against this.
     public var speed: Double
+    public var accel: AccelPreset
+    /// Seconds the speed curve covers. Past this, speed stays at the last knot.
+    public var accelSeconds: Double
+    public var accelKnots: [SpeedKnot]
     public var fastMultiplier: Double
     public var slowMultiplier: Double
     public var scrollSpeed: Double
+    /// When true, scroll left and scroll right trade directions.
+    public var scrollReverseX: Bool
+    /// When true, scroll up and scroll down trade directions.
+    public var scrollReverseY: Bool
     public var haloAttention: HaloAttention
     /// Seconds for one attention cycle.
     public var haloAttentionPeriod: Double
@@ -207,9 +216,14 @@ public struct FreeConfig: Codable, Sendable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case speed
+        case accel
+        case accelSeconds = "accel_seconds"
+        case accelKnots = "accel_knots"
         case fastMultiplier = "fast_multiplier"
         case slowMultiplier = "slow_multiplier"
         case scrollSpeed = "scroll_speed"
+        case scrollReverseX = "scroll_reverse_x"
+        case scrollReverseY = "scroll_reverse_y"
         case haloAttention = "halo_attention"
         case haloAttentionPeriod = "halo_attention_period"
         case haloAttentionScale = "halo_attention_scale"
@@ -217,19 +231,29 @@ public struct FreeConfig: Codable, Sendable, Equatable {
     }
 
     public init(
-        speed: Double = 660,
+        speed: Double = 2000,
+        accel: AccelPreset = .glide,
+        accelSeconds: Double = AccelCurve.defaultDuration,
+        accelKnots: [SpeedKnot] = AccelCurve.knots(for: .glide),
         fastMultiplier: Double = 3,
         slowMultiplier: Double = 0.25,
-        scrollSpeed: Double = 5,
+        scrollSpeed: Double = 200,
+        scrollReverseX: Bool = false,
+        scrollReverseY: Bool = false,
         haloAttention: HaloAttention = .pulse,
         haloAttentionPeriod: Double = 1.4,
         haloAttentionScale: Double = 3.6,
         haloOffset: Cartesian = Cartesian(x: 25, y: -25)
     ) {
         self.speed = speed
+        self.accel = accel
+        self.accelSeconds = accelSeconds
+        self.accelKnots = accelKnots
         self.fastMultiplier = fastMultiplier
         self.slowMultiplier = slowMultiplier
         self.scrollSpeed = scrollSpeed
+        self.scrollReverseX = scrollReverseX
+        self.scrollReverseY = scrollReverseY
         self.haloAttention = haloAttention
         self.haloAttentionPeriod = haloAttentionPeriod
         self.haloAttentionScale = haloAttentionScale
@@ -242,10 +266,26 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         fastMultiplier = try Self.decodeNumber(c, forKey: .fastMultiplier)
         slowMultiplier = try Self.decodeNumber(c, forKey: .slowMultiplier)
         scrollSpeed = try Self.decodeNumber(c, forKey: .scrollSpeed)
+        scrollReverseX = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseX) ?? false
+        scrollReverseY = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseY) ?? false
         haloAttention = try c.decodeIfPresent(HaloAttention.self, forKey: .haloAttention) ?? .pulse
         haloAttentionPeriod = (try? Self.decodeNumber(c, forKey: .haloAttentionPeriod)) ?? 1.4
         haloAttentionScale = (try? Self.decodeNumber(c, forKey: .haloAttentionScale)) ?? 3.6
         haloOffset = try c.decodeIfPresent(Cartesian.self, forKey: .haloOffset) ?? Cartesian(x: 25, y: -25)
+
+        let requested = (try? c.decode(AccelPreset.self, forKey: .accel)) ?? .glide
+        let secondsPresent = c.contains(.accelSeconds)
+        let requestedSeconds = (try? Self.decodeNumber(c, forKey: .accelSeconds)) ?? AccelCurve.defaultDuration
+        if let knots = try? c.decode([SpeedKnot].self, forKey: .accelKnots), knots.count >= 2 {
+            let window = secondsPresent ? requestedSeconds : (knots.map(\.t).max() ?? requestedSeconds)
+            accelSeconds = min(30, max(0.5, window))
+            accelKnots = AccelCurve.normalized(knots, duration: accelSeconds)
+            accel = requested == .custom ? .custom : AccelCurve.matching(accelKnots, duration: accelSeconds)
+        } else {
+            accel = requested == .custom ? .glide : requested
+            accelSeconds = min(30, max(0.5, requestedSeconds))
+            accelKnots = AccelCurve.knots(for: accel, duration: accelSeconds)
+        }
     }
 
     private static func decodeNumber(_ c: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) throws -> Double {
@@ -426,10 +466,10 @@ public struct FreeBindings: Codable, Sendable, Equatable {
     }
 
     public init(
-        moveLeft: [String] = ["h", "left"],
-        moveDown: [String] = ["j", "down"],
-        moveUp: [String] = ["k", "up"],
-        moveRight: [String] = ["l", "right"],
+        moveLeft: [String] = ["j", "left"],
+        moveDown: [String] = ["k", "down"],
+        moveUp: [String] = ["l", "up"],
+        moveRight: [String] = [";", "right"],
         faster: [String] = ["z"],
         slower: [String] = ["x"],
         scrollUp: [String] = ["."],

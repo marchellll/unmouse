@@ -25,10 +25,14 @@ label_outline = "#000000"       # stroke around cell letters; "#00000000" or wid
 label_outline_width = 2     # points
 
 [free]
-speed = 480.0        # cursor speed in points per second
+speed = 2000.0       # top pointer speed, points per second
+accel = "glide"      # linear | diagonal | glide | custom; pointer and scroll
+accel_seconds = 3.5  # seconds that curve runs for both
 fast_multiplier = 3.0
 slow_multiplier = 0.25
-scroll_speed = 10.0  # scroll lines per second
+scroll_speed = 200.0  # top scroll lines per second; ramps on that curve
+scroll_reverse_x = false  # flip left/right
+scroll_reverse_y = false  # flip up/down
 halo_attention = "pulse"   # none | pulse | ping | breathe
 halo_attention_period = 1.1  # seconds
 halo_attention_scale = 2.4
@@ -77,7 +81,7 @@ hint_line = "#FFFFFFCC"
 #   shift+tab                    a combo
 #   ","                          the comma key
 [bindings.global]
-grid_mode = ["command_left"]          # tap
+grid_mode = ["command_left"]          # tap to toggle
 free_mode = ["option_left"]           # tap
 hint_mode = ["command+shift+space"]
 
@@ -92,15 +96,15 @@ cancel = ["escape"]
 next_screen = ["tab"]
 
 [bindings.free]
-move_left = ["d", "left"]
-move_down = ["h", "down"]
-move_up = ["t", "up"]
-move_right = ["n", "right"]
+move_left = ["h", "left"]
+move_down = ["t", "down"]
+move_up = ["n", "up"]
+move_right = ["s", "right"]
 faster = [";"]                  # hold
 slower = ["q"]                  # hold
-scroll_up = ["m"]
+scroll_left = ["m"]
 scroll_down = ["w"]
-scroll_left = ["v"]
+scroll_up = ["v"]
 scroll_right = ["z"]
 toggle_drag = ["'"]
 left_click = ["space"]                # stays in free mode; if a drag is held, drop it and stay

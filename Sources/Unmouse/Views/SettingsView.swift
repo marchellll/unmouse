@@ -41,10 +41,37 @@ struct SettingsView: View {
             .padding(8)
         }
         .frame(minWidth: 720, minHeight: 520)
+        .onAppear {
+            model.refreshPermissions()
+            model.refreshLaunchAtLogin()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.refreshPermissions()
+            model.refreshLaunchAtLogin()
+        }
     }
 
     private func commit() {
         model.commitConfigEdits()
+    }
+
+    private var launchAtLoginBinding: Binding<Bool> {
+        Binding(
+            get: { model.launchAtLogin },
+            set: { model.setLaunchAtLogin($0) }
+        )
+    }
+
+    private func permissionRow(title: String, ok: Bool, actionTitle: String, action: @escaping () -> Void) -> some View {
+        HStack {
+            Image(systemName: ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(ok ? .green : .orange)
+            Text(title)
+            Spacer()
+            if !ok {
+                Button(actionTitle, action: action)
+            }
+        }
     }
 
     private func bind(_ title: String, _ binding: Binding<[String]>, hint: String? = nil, conflicts: Bool = false) -> some View {
@@ -66,9 +93,45 @@ struct SettingsView: View {
     // MARK: Panes
 
     @ViewBuilder private var globalPane: some View {
+        Section {
+            permissionRow(
+                title: "Accessibility",
+                ok: model.accessibilityTrusted,
+                actionTitle: "Grant",
+                action: { model.requestAccessibility() }
+            )
+            permissionRow(
+                title: "Input Monitoring",
+                ok: model.inputMonitoringOK,
+                actionTitle: "Open Settings",
+                action: { model.openInputMonitoringSettings() }
+            )
+        }
+
+        Section {
+            Toggle("Coach", isOn: $model.coachEnabled)
+                .help("While a mode is on, shows what you can do next.")
+                .onChange(of: model.coachEnabled) { _, _ in
+                    model.overlayController?.updateCoach()
+                }
+            Menu("Tutorial") {
+                Button("Install walkthrough") { model.showWalkthrough = true }
+                Divider()
+                ForEach(TutorialSessionID.allCases, id: \.self) { session in
+                    Button(session.title) { model.startTutorial(session) }
+                }
+            }
+            Toggle("Open at login", isOn: launchAtLoginBinding)
+                .help("Launches Unmouse when you log in.")
+            if let note = model.launchAtLoginNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
 
         Section("Mode shortcuts") {
-            bind("Grid mode", global(\.gridMode), hint: "Tap to open the grid on the screen under the pointer. The same tap while dragging opens the grid and keeps the drag.")
+            bind("Grid mode", global(\.gridMode), hint: "Tap to open the grid on the screen under the pointer. Tap again to cancel. The same tap while dragging opens the grid and keeps the drag.")
             bind("Free mode", global(\.freeMode), hint: "Tap to drive the pointer from the keyboard. Tap again to leave. On a finished grid cell, this jumps there and enters free mode.")
             bind("Hint mode", global(\.hintMode), hint: "Labels clickable controls on screen. Type a label to arm it, then confirm.")
         }
@@ -237,12 +300,49 @@ struct SettingsView: View {
         }
     }
 
+    private var speedCurveRow: some View {
+        let hint = "The pt/s number is the top pointer speed. The seconds number is how long the curve runs. Pointer movement and scroll both follow it. Glide starts slower, levels off, then reaches the top just after 3 seconds. Drag a point to change the shape."
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                OptionLabel(title: "Speed curve", hint: hint)
+                    .frame(maxWidth: 280, alignment: .leading)
+                Spacer(minLength: 8)
+                menuPicker(accelPresetBinding) {
+                    ForEach(AccelPreset.allCases, id: \.self) { preset in
+                        Text(preset.title).tag(preset)
+                    }
+                }
+            }
+            AccelCurveEditor(knots: accelKnotsBinding, duration: model.config.free.accelSeconds, onCommit: commit)
+            HStack(spacing: 8) {
+                TypedNumber(value: freeDouble(\.speed), range: 1...50_000, maxFraction: 2)
+                Text("pt/s")
+                    .foregroundStyle(.secondary)
+                Stepper("", value: freeDouble(\.speed), in: 1...50_000, step: 20)
+                    .labelsHidden()
+                Spacer(minLength: 8)
+                TypedNumber(value: accelSecondsBinding, range: 1...30, maxFraction: 1, width: 56)
+                Text("s")
+                    .foregroundStyle(.secondary)
+                Stepper("", value: accelSecondsBinding, in: 1...30, step: 0.5)
+                    .labelsHidden()
+            }
+        }
+        .help(hint)
+    }
+
     @ViewBuilder private var freePane: some View {
         Section("Motion") {
-            SteppedDoubleRow("Cursor speed", unit: "pt/s", value: freeDouble(\.speed), step: 20, hint: "How fast the pointer travels while a move key is held.")
-            SteppedDoubleRow("Fast multiplier", unit: "×", value: freeDouble(\.fastMultiplier), step: 0.25, hint: "Multiplies cursor speed while Faster is held.")
-            SteppedDoubleRow("Slow multiplier", unit: "×", value: freeDouble(\.slowMultiplier), step: 0.05, hint: "Multiplies cursor speed while Slower is held.")
-            SteppedDoubleRow("Scroll speed", unit: "lines/s", value: freeDouble(\.scrollSpeed), step: 1, hint: "How fast a held scroll key rolls the view. One line is 16 points, sent continuously while the key is held.")
+            speedCurveRow
+            SteppedDoubleRow("Fast multiplier", unit: "×", value: freeDouble(\.fastMultiplier), step: 0.25, hint: "Multiplies the speed curve while Faster is held.")
+            SteppedDoubleRow("Slow multiplier", unit: "×", value: freeDouble(\.slowMultiplier), step: 0.05, hint: "Multiplies the speed curve while Slower is held.")
+            SteppedDoubleRow("Scroll speed", unit: "lines/s", value: freeDouble(\.scrollSpeed), step: 1, hint: "Top scroll rate while a scroll key is held. The speed curve ramps it over the same seconds as pointer movement. One line is 16 points.")
+            optionHint("Reverse scroll", hint: "Flips that scroll axis. X swaps left and right. Y swaps up and down.") {
+                HStack(spacing: 16) {
+                    Toggle("X", isOn: freeBool(\.scrollReverseX))
+                    Toggle("Y", isOn: freeBool(\.scrollReverseY))
+                }
+            }
         }
         Section("Halo") {
             optionHint(
@@ -341,7 +441,10 @@ struct SettingsView: View {
                     }
                 }
             }
-            Button("Open config.toml") { model.editConfig() }
+            HStack {
+                Button("Open config.toml") { model.editConfig() }
+                Button("Reload config") { model.reloadConfigFromDisk() }
+            }
         }
     }
 
@@ -433,6 +536,59 @@ struct SettingsView: View {
                 model.config.grid[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound)
                 commit()
             }
+        )
+    }
+
+    private var accelPresetBinding: Binding<AccelPreset> {
+        Binding(
+            get: { model.config.free.accel },
+            set: { preset in
+                if preset == .glide {
+                    model.config.free.accelSeconds = AccelCurve.defaultDuration
+                }
+                model.config.free.accel = preset
+                if preset != .custom {
+                    model.config.free.accelKnots = AccelCurve.knots(for: preset, duration: model.config.free.accelSeconds)
+                }
+                commit()
+            }
+        )
+    }
+
+    private var accelSecondsBinding: Binding<Double> {
+        Binding(
+            get: { model.config.free.accelSeconds },
+            set: { raw in
+                let next = min(30, max(1, raw))
+                let current = model.config.free.accelSeconds
+                guard next != current, current > 0 else { return }
+                model.config.free.accelSeconds = next
+                if model.config.free.accel != .custom {
+                    model.config.free.accelKnots = AccelCurve.knots(for: model.config.free.accel, duration: next)
+                } else {
+                    let scale = next / current
+                    let scaled = model.config.free.accelKnots.map { SpeedKnot(t: $0.t * scale, y: $0.y) }
+                    model.config.free.accelKnots = AccelCurve.normalized(scaled, duration: next)
+                }
+                commit()
+            }
+        )
+    }
+
+    private var accelKnotsBinding: Binding<[SpeedKnot]> {
+        Binding(
+            get: { model.config.free.accelKnots },
+            set: {
+                model.config.free.accelKnots = $0
+                model.config.free.accel = AccelCurve.matching($0, duration: model.config.free.accelSeconds)
+            }
+        )
+    }
+
+    private func freeBool(_ keyPath: WritableKeyPath<FreeConfig, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { model.config.free[keyPath: keyPath] },
+            set: { model.config.free[keyPath: keyPath] = $0; commit() }
         )
     }
 
@@ -541,29 +697,38 @@ private struct SteppedIntRow: View {
                     OptionLabel(title: title, hint: hint)
                         .frame(maxWidth: 280, alignment: .leading)
                     Spacer(minLength: 8)
-                    valueText
+                    numberField
                     Stepper("", value: $value, in: range ?? 0...10_000)
                         .labelsHidden()
                 }
             } else {
-                Stepper(value: $value, in: range ?? 0...10_000) {
-                    HStack {
-                        Text(title)
-                        Spacer()
-                        valueText
-                    }
+                HStack {
+                    Text(title)
+                    Spacer(minLength: 8)
+                    numberField
+                    Stepper("", value: $value, in: range ?? 0...10_000)
+                        .labelsHidden()
                 }
             }
         }
         .modifier(OptionalHelp(hint: hint))
     }
 
-    private var valueText: some View {
-        Group {
+    private var numberField: some View {
+        HStack(spacing: 6) {
+            let span = range ?? 0...10_000
+            TypedNumber(
+                value: Binding(
+                    get: { Double(value) },
+                    set: { value = Int($0.rounded()) }
+                ),
+                range: Double(span.lowerBound)...Double(span.upperBound),
+                maxFraction: 0,
+                width: 64
+            )
             if let unit {
-                Text("\(value) \(unit)").monospacedDigit().foregroundStyle(.secondary)
-            } else {
-                Text("\(value)").monospacedDigit()
+                Text(unit)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -593,9 +758,7 @@ private struct SteppedDoubleRow: View {
                 Text(title)
             }
             Spacer(minLength: 8)
-            Text(value, format: .number.precision(.fractionLength(2)))
-                .monospacedDigit()
-                .frame(width: 56, alignment: .trailing)
+            TypedNumber(value: $value, minFraction: 2, maxFraction: 2)
             if let unit {
                 Text(unit)
                     .foregroundStyle(.secondary)
@@ -605,6 +768,71 @@ private struct SteppedDoubleRow: View {
                 .labelsHidden()
         }
         .modifier(OptionalHelp(hint: hint))
+    }
+}
+
+/// Number you can type or step. Commits when you leave the field or press Return.
+private struct TypedNumber: View {
+    @Binding var value: Double
+    var range: ClosedRange<Double>?
+    var minFraction: Int = 0
+    var maxFraction: Int = 2
+    var width: CGFloat = 76
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focused)
+            .monospacedDigit()
+            .multilineTextAlignment(.trailing)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: width)
+            .onAppear { text = format(value) }
+            .onChange(of: value) { _, new in
+                if focused, let parsed = parse(text), abs(parsed - new) < 0.000_001 { return }
+                text = format(new)
+            }
+            .onSubmit { apply() }
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { apply() }
+            }
+    }
+
+    private func apply() {
+        guard var next = parse(text) else {
+            text = format(value)
+            return
+        }
+        if let range {
+            next = min(range.upperBound, max(range.lowerBound, next))
+        }
+        text = format(next)
+        if abs(next - value) > 0.000_001 {
+            value = next
+        }
+    }
+
+    private func format(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = minFraction
+        formatter.maximumFractionDigits = maxFraction
+        return formatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
+    private func parse(_ text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.numberStyle = .decimal
+        if let number = formatter.number(from: trimmed) {
+            return number.doubleValue
+        }
+        return Double(trimmed.replacingOccurrences(of: ",", with: "."))
     }
 }
 
@@ -628,16 +856,12 @@ private struct CartesianRow: View {
             Spacer(minLength: 8)
             Text("x")
                 .foregroundStyle(.secondary)
-            Text(x, format: .number.precision(.fractionLength(0)))
-                .monospacedDigit()
-                .frame(width: 40, alignment: .trailing)
+            TypedNumber(value: $x, maxFraction: 0, width: 64)
             Stepper("", value: $x, step: 1)
                 .labelsHidden()
             Text("y")
                 .foregroundStyle(.secondary)
-            Text(y, format: .number.precision(.fractionLength(0)))
-                .monospacedDigit()
-                .frame(width: 40, alignment: .trailing)
+            TypedNumber(value: $y, maxFraction: 0, width: 64)
             Stepper("", value: $y, step: 1)
                 .labelsHidden()
         }

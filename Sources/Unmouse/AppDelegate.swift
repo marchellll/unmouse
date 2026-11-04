@@ -2,23 +2,22 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var model: AppModel!
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
     private var coachTimer: Timer?
+    private let statusTag = 1
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = AppModel()
         model.start()
 
-        // squareLength — never assign button.frame; that detaches the item from the
-        // menu bar and makes the popover anchor float mid-screen.
+        // squareLength — never assign button.frame; that detaches the item from the menu bar.
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
             button.image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in true }
             button.image?.isTemplate = true
-            let hosting = NSHostingView(rootView: StatusIconView(model: model))
+            let hosting = StatusIconHost(rootView: StatusIconView(model: model))
             hosting.translatesAutoresizingMaskIntoConstraints = false
             button.addSubview(hosting)
             NSLayoutConstraint.activate([
@@ -27,17 +26,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 hosting.widthAnchor.constraint(equalToConstant: 18),
                 hosting.heightAnchor.constraint(equalToConstant: 18),
             ])
-            button.action = #selector(togglePopover(_:))
-            button.target = self
         }
+        item.menu = makeMenu()
         statusItem = item
-
-        let pop = NSPopover()
-        pop.behavior = .transient
-        let host = NSHostingController(rootView: PopoverView(model: model))
-        host.sizingOptions = [.intrinsicContentSize]
-        pop.contentViewController = host
-        popover = pop
 
         coachTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -48,15 +39,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         syncWindows()
     }
 
-    @objc private func togglePopover(_ sender: Any?) {
-        guard let button = statusItem?.button, let popover else { return }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            model.refreshPermissions()
-            // minY = below the status button (toward the desktop).
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        }
+    private func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = self
+
+        let name = NSMenuItem(title: "Unmouse", action: nil, keyEquivalent: "")
+        name.isEnabled = false
+        menu.addItem(name)
+
+        let status = NSMenuItem(title: model.mode.rawValue.capitalized, action: nil, keyEquivalent: "")
+        status.tag = statusTag
+        status.isEnabled = false
+        menu.addItem(status)
+
+        menu.addItem(.separator())
+
+        let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings(_:)), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+
+        let quit = NSMenuItem(title: "Quit", action: #selector(quit(_:)), keyEquivalent: "q")
+        quit.target = self
+        menu.addItem(quit)
+        return menu
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        menu.item(withTag: statusTag)?.title = model.mode.rawValue.capitalized
+    }
+
+    @objc private func openSettings(_ sender: Any?) {
+        SettingsWindowController.shared.show(model: model)
+    }
+
+    @objc private func quit(_ sender: Any?) {
+        NSApp.terminate(nil)
     }
 
     private func syncWindows() {

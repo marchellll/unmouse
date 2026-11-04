@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Observation
+import ServiceManagement
 import UnmouseCore
 
 @Observable
@@ -19,6 +20,9 @@ final class AppModel {
     var accessibilityTrusted = false
     var inputMonitoringOK = false
     var karabinerStatus: KarabinerStatus = .eventTapOnly
+    /// Mirrors `SMAppService.mainApp`. The system stores this, not config.toml, so a preset cannot toggle it.
+    var launchAtLogin = false
+    var launchAtLoginNote: String?
     var presets: [PresetItem] = []
 
     let heldKeys = HeldKeyStore()
@@ -29,21 +33,27 @@ final class AppModel {
     private let displayLink = DisplayLinkDriver()
     private var configWatcher: DispatchSourceFileSystemObject?
     private var configFD: Int32 = -1
+    private var configWatchRearming = false
     private(set) var overlayController: OverlayController?
     private var lastFlags: CGEventFlags = []
     /// Fractional scroll leftover so scroll_speed is lines/sec, not lines/frame.
     private var scrollFracX: Double = 0
     private var scrollFracY: Double = 0
+    /// How long the current direction hold has lasted. Drives the speed curve.
+    private var moveHeld: TimeInterval = 0
+    /// How long the current scroll hold has lasted. Same curve as pointer movement.
+    private var scrollHeld: TimeInterval = 0
     private var saveWorkItem: DispatchWorkItem?
     private var suppressConfigReload = false
     /// Currently applied preset name (for Settings picker).
     var selectedPresetName: String = "default.config"
-    /// Speed modifiers tracked explicitly so Z/X work while move keys (incl. arrows) are held.
-    private var fasterHeld = false
+    /// Z/X stay down across the key-up arrow reports emit for other held keys.
+    /// Not observed: the display link settles it every frame while a release is pending.
+    @ObservationIgnored
+    private var speedLatch = SpeedModifierLatch()
     /// Option enters free on key-down. The matching key-up must not immediately leave.
     private var consumeFreeExitUp = false
     private var lastLeftClickNanos: UInt64 = 0
-    private var slowerHeld = false
     /// Last user input while a mode is active (for mode_timeout_s).
     private var lastModeActivityNanos: UInt64 = 0
     private var modeWatchTimer: DispatchSourceTimer?
@@ -76,6 +86,7 @@ final class AppModel {
         wireInput()
         updateKarabiner()
         refreshPermissions()
+        refreshLaunchAtLogin()
 
         if !accessibilityTrusted {
             showWalkthrough = true
@@ -109,6 +120,38 @@ final class AppModel {
     func openInputMonitoringSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    /// ponytail: registers this app bundle as a login item. `swift run` has no bundle, so the toggle fails until Unmouse.app is what launches.
+    func refreshLaunchAtLogin() {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            launchAtLogin = true
+            launchAtLoginNote = nil
+        case .requiresApproval:
+            launchAtLogin = true
+            launchAtLoginNote = "Approve Unmouse in System Settings → General → Login Items."
+        case .notRegistered, .notFound:
+            launchAtLogin = false
+            launchAtLoginNote = nil
+        @unknown default:
+            launchAtLogin = false
+            launchAtLoginNote = nil
+        }
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            refreshLaunchAtLogin()
+        } catch {
+            refreshLaunchAtLogin()
+            launchAtLoginNote = error.localizedDescription
         }
     }
 
@@ -170,6 +213,16 @@ final class AppModel {
             UnmouseLog.error("config load failed: \(configError ?? "")")
         }
         updateKarabiner()
+        overlayController?.refreshAppearance()
+    }
+
+    /// Drop a pending settings write and read config.toml again.
+    func reloadConfigFromDisk() {
+        saveWorkItem?.cancel()
+        saveWorkItem = nil
+        suppressConfigReload = false
+        reloadConfig()
+        watchConfig()
     }
 
     func applyPreset(_ item: PresetItem) {
@@ -247,21 +300,30 @@ final class AppModel {
     }
 
     private func watchConfig() {
+        // Atomic saves (TextEdit, VS Code, our own write) replace the file.
+        // The old vnode never sees the next write, so re-open after every event.
+        if configWatchRearming { return }
+        configWatchRearming = true
+        defer { configWatchRearming = false }
+        configWatcher?.cancel()
+        configWatcher = nil
         let url = ConfigIO.configURL()
-        configFD = open(url.path, O_EVTONLY)
-        guard configFD >= 0 else { return }
+        let fd = open(url.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+        configFD = fd
         let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: configFD,
-            eventMask: [.write, .rename, .delete],
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete, .extend],
             queue: .main
         )
         source.setEventHandler { [weak self] in
-            guard let self, !self.suppressConfigReload else { return }
+            guard let self else { return }
+            self.watchConfig()
+            guard !self.suppressConfigReload else { return }
             self.reloadConfig()
         }
-        source.setCancelHandler { [weak self] in
-            if let fd = self?.configFD, fd >= 0 { close(fd) }
-            self?.configFD = -1
+        source.setCancelHandler {
+            if fd >= 0 { close(fd) }
         }
         configWatcher = source
         source.resume()
@@ -319,16 +381,26 @@ final class AppModel {
         let token = KeyCodes.token(for: kind)
         // Mirror every event into held set before dedupe. Swallowing CGEvents makes
         // CGEventSource.keyState unreliable, so our set is the source of truth.
-        // In free mode, ignore Karabiner key-ups — HID NKRO ghosts clear Z/X while
-        // arrows stay down, which killed speed modifiers mid-move.
+        // Karabiner key-ups in free mode are ignored: its virtual keyboard drops Z/X
+        // while an arrow is held. The event tap sees that same ghost up; the latch
+        // below keeps the modifier until the arrow is actually released.
         if down {
             heldKeys.setHeld(token, down: true)
         } else if source == .tap || mode != .free {
             heldKeys.setHeld(token, down: false)
         }
-        updateSpeedModifierFlags(kind: kind, down: down, source: source)
-
         let now = DispatchTime.now().uptimeNanoseconds
+        updateSpeedModifierFlags(kind: kind, down: down, source: source, nowNanos: now)
+        if speedLatch.releasePending {
+            let free = config.bindings.free
+            speedLatch.sync(
+                arrowHeld: arrowMoveHeld(),
+                fasterHID: hidDown(free.faster),
+                slowerHID: hidDown(free.slower),
+                nowNanos: now
+            )
+        }
+
         guard deduper.shouldHandle(token: token, down: down, nowNanos: now) else {
             return mode != .idle
         }
@@ -339,18 +411,57 @@ final class AppModel {
         return handleKeyDown(kind: kind, flags: flags)
     }
 
-    private func updateSpeedModifierFlags(kind: KeyKind, down: Bool, source: InputSource) {
+    private func updateSpeedModifierFlags(kind: KeyKind, down: Bool, source: InputSource, nowNanos: UInt64) {
         let b = config.bindings.free
         let faster = BindingMatcher(b.faster).matches(key: kind, flags: [], alone: false)
         let slower = BindingMatcher(b.slower).matches(key: kind, flags: [], alone: false)
         guard faster || slower else { return }
         if down {
-            if faster { fasterHeld = true }
-            if slower { slowerHeld = true }
-        } else if source == .tap || mode != .free {
-            if faster { fasterHeld = false }
-            if slower { slowerHeld = false }
+            speedLatch.keyDown(faster: faster, slower: slower)
+            return
         }
+        // Karabiner's ghost up is ignored. The tap's copy is deferred across the arrow report.
+        guard source == .tap || mode != .free else { return }
+        speedLatch.keyUp(
+            faster: faster,
+            slower: slower,
+            arrowHeld: arrowMoveHeld(),
+            hidDown: hidDown(kind),
+            nowNanos: nowNanos
+        )
+    }
+
+    /// Arrow keys bound to free-mode movement. Letter aliases (hjkl) are not included.
+    private func arrowMoveHeld() -> Bool {
+        let move = [
+            config.bindings.free.moveLeft,
+            config.bindings.free.moveRight,
+            config.bindings.free.moveUp,
+            config.bindings.free.moveDown,
+        ]
+        for raw in move {
+            for shortcut in (try? ShortcutParser.parseAll(raw)) ?? [] {
+                switch shortcut.key {
+                case .left, .right, .up, .down:
+                    if heldKeys.isHeld(KeyCodes.token(for: shortcut.key)) { return true }
+                default:
+                    break
+                }
+            }
+        }
+        return false
+    }
+
+    private func hidDown(_ kind: KeyKind) -> Bool {
+        guard let code = KeyCodes.keyCode(for: kind) else { return false }
+        return CGEventSource.keyState(.hidSystemState, key: code)
+    }
+
+    private func hidDown(_ raw: [String]) -> Bool {
+        for shortcut in (try? ShortcutParser.parseAll(raw)) ?? [] {
+            if hidDown(shortcut.key) { return true }
+        }
+        return false
     }
 
     private func bindingHeld(_ raw: [String]) -> Bool {
@@ -406,7 +517,11 @@ final class AppModel {
         }
         if alone {
             if BindingMatcher(global.gridMode).matches(key: kind, flags: [], alone: true) {
-                if mode == .free || mode == .idle || (mode == .grid) {
+                if mode == .grid {
+                    cancelGrid()
+                    return false
+                }
+                if mode == .free || mode == .idle {
                     enterGrid()
                     return false
                 }
@@ -456,6 +571,8 @@ final class AppModel {
     }
 
     func enterFree(fromGrid: Bool) {
+        moveHeld = 0
+        scrollHeld = 0
         mode = .free
         hintState = HintState()
         hintBubbles = []
@@ -485,6 +602,16 @@ final class AppModel {
         Task { await loadHints(generation: generation) }
     }
 
+    /// Same path as the grid Cancel binding. A held drag returns to free mode.
+    private func cancelGrid() {
+        if dragging {
+            enterFree(fromGrid: false)
+        } else {
+            exitToIdle()
+        }
+        note(.cancelled)
+    }
+
     func exitToIdle(keepDrag: Bool = false) {
         if !keepDrag, dragging {
             PointerController.mouseUp(.left)
@@ -499,10 +626,11 @@ final class AppModel {
         stopDisplayLink()
         stopModeWatch()
         heldKeys.clearHeld()
-        fasterHeld = false
-        slowerHeld = false
+        speedLatch.reset()
         scrollFracX = 0
         scrollFracY = 0
+        moveHeld = 0
+        scrollHeld = 0
     }
 
     private func bumpModeActivity() {
@@ -545,12 +673,7 @@ final class AppModel {
         let b = config.bindings.grid
 
         if BindingMatcher(b.cancel).matches(key: kind, flags: flags, alone: false) {
-            if dragging {
-                enterFree(fromGrid: false)
-            } else {
-                exitToIdle()
-            }
-            note(.cancelled)
+            cancelGrid()
             return true
         }
         if BindingMatcher(b.back).matches(key: kind, flags: flags, alone: false) {
@@ -929,24 +1052,42 @@ final class AppModel {
         // Do not publish per-frame state. Redrawing the blended free-dot view
         // leaked a Mach port every frame (Activity Monitor "Ports" climbs into the thousands).
         let b = config.bindings.free
+        if speedLatch.releasePending {
+            speedLatch.sync(
+                arrowHeld: arrowMoveHeld(),
+                fasterHID: hidDown(b.faster),
+                slowerHID: hidDown(b.slower),
+                nowNanos: DispatchTime.now().uptimeNanoseconds
+            )
+        }
         var speedMult = 1.0
-        if fasterHeld || bindingHeld(b.faster) {
+        if speedLatch.faster || hidDown(b.faster) || bindingHeld(b.faster) {
             speedMult *= config.free.fastMultiplier
             note(.heldFaster)
         }
-        if slowerHeld || bindingHeld(b.slower) {
+        if speedLatch.slower || hidDown(b.slower) || bindingHeld(b.slower) {
             speedMult *= config.free.slowMultiplier
             note(.heldSlower)
         }
-        let step = CGFloat(config.free.speed * speedMult * dt)
+        let left = bindingHeld(b.moveLeft)
+        let right = bindingHeld(b.moveRight)
+        let up = bindingHeld(b.moveUp)
+        let down = bindingHeld(b.moveDown)
+        if left || right || up || down {
+            moveHeld += min(dt, 0.05)
+        } else {
+            moveHeld = 0
+        }
+        let pace = AccelCurve.fraction(knots: config.free.accelKnots, at: moveHeld)
+        let step = CGFloat(config.free.speed * pace * speedMult * dt)
 
         var dx: CGFloat = 0
         var dy: CGFloat = 0
         // CGEvent y: down is positive
-        if bindingHeld(b.moveLeft) { dx -= step }
-        if bindingHeld(b.moveRight) { dx += step }
-        if bindingHeld(b.moveUp) { dy -= step }
-        if bindingHeld(b.moveDown) { dy += step }
+        if left { dx -= step }
+        if right { dx += step }
+        if up { dy -= step }
+        if down { dy += step }
         if dx != 0 || dy != 0 {
             // While dragging, only post dragged events — mouseMoved drops the button.
             PointerController.moveBy(dx: dx, dy: dy, dragging: dragging)
@@ -954,18 +1095,31 @@ final class AppModel {
             note(.moved)
         }
 
-        // scroll_speed is lines per second. 16pt is one line, posted as pixels every frame.
-        let scrollRate = config.free.scrollSpeed * speedMult * 16
-        if bindingHeld(b.scrollUp) { scrollFracY += scrollRate * dt }
-        if bindingHeld(b.scrollDown) { scrollFracY -= scrollRate * dt }
-        if bindingHeld(b.scrollLeft) { scrollFracX -= scrollRate * dt }
-        if bindingHeld(b.scrollRight) { scrollFracX += scrollRate * dt }
+        let scrollUp = bindingHeld(b.scrollUp)
+        let scrollDown = bindingHeld(b.scrollDown)
+        let scrollLeft = bindingHeld(b.scrollLeft)
+        let scrollRight = bindingHeld(b.scrollRight)
+        if scrollUp || scrollDown || scrollLeft || scrollRight {
+            scrollHeld += min(dt, 0.05)
+        } else {
+            scrollHeld = 0
+        }
+        // scroll_speed is the top lines per second. The speed curve ramps it, same as pointer movement.
+        // 16pt is one line, posted as pixels every frame.
+        let scrollPace = AccelCurve.fraction(knots: config.free.accelKnots, at: scrollHeld)
+        let scrollRate = config.free.scrollSpeed * scrollPace * speedMult * 16
+        if scrollUp { scrollFracY += scrollRate * dt }
+        if scrollDown { scrollFracY -= scrollRate * dt }
+        if scrollLeft { scrollFracX -= scrollRate * dt }
+        if scrollRight { scrollFracX += scrollRate * dt }
         let sdx = scrollFracX.rounded(.towardZero)
         let sdy = scrollFracY.rounded(.towardZero)
         if sdx != 0 || sdy != 0 {
             scrollFracX -= sdx
             scrollFracY -= sdy
-            PointerController.scroll(dx: sdx, dy: sdy)
+            let xSign = config.free.scrollReverseX ? -1.0 : 1.0
+            let ySign = config.free.scrollReverseY ? -1.0 : 1.0
+            PointerController.scroll(dx: sdx * xSign, dy: sdy * ySign)
             bumpModeActivity()
             note(.scrolled)
         }

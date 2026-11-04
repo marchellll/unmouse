@@ -216,9 +216,18 @@ final class GridLinesView: NSView {
                 text.shadowRadius = 0
             }
             text.setNeedsDisplay()
+            // The pointer sits on the subgrid's center, so that one label moves up. The rest stay centered.
+            var textY = cell.midY - screen.origin.y - textHeight / 2
+            if state.levels.count > 1,
+               state.rows % 2 == 1, state.cols % 2 == 1,
+               row == state.rows / 2, col == state.cols / 2
+            {
+                let room = cell.height / 2 - textHeight / 2 - 2
+                textY += min(16, max(0, room))
+            }
             text.frame = CGRect(
                 x: cell.minX - screen.origin.x,
-                y: cell.midY - screen.origin.y - textHeight / 2,
+                y: textY,
                 width: cell.width,
                 height: textHeight
             )

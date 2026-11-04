@@ -31,11 +31,7 @@ struct ConfigTests {
         let text = try String(contentsOf: try #require(url), encoding: .utf8)
         let config = try ConfigIO.decode(from: text)
         let errors = ConfigValidator.validate(config)
-        #expect(errors == [
-            .gridShortcutOverlapsChars("a"),
-            .gridShortcutOverlapsChars("s"),
-            .gridShortcutOverlapsChars("d"),
-        ])
+        #expect(errors.isEmpty)
     }
 
     @Test func allExampleConfigsValidate() throws {
@@ -49,10 +45,8 @@ struct ConfigTests {
             let errors = ConfigValidator.validate(config)
             let other = errors.filter(\.blocksApply)
             #expect(other.isEmpty, "\(url.lastPathComponent): \(other)")
-            if !url.lastPathComponent.hasPrefix("default") {
-                let overlaps = errors.filter { if case .gridShortcutOverlapsChars = $0 { true } else { false } }
-                #expect(overlaps.isEmpty, "\(url.lastPathComponent): \(overlaps)")
-            }
+            let overlaps = errors.filter { if case .gridShortcutOverlapsChars = $0 { true } else { false } }
+            #expect(overlaps.isEmpty, "\(url.lastPathComponent): \(overlaps)")
         }
     }
 
@@ -79,6 +73,7 @@ struct ConfigTests {
 
     @Test func gridShortcutOverlap() {
         var c = AppConfig.default
+        c.grid.chars = "qwertyuiopasdfghjkl;"
         let flagged = ConfigValidator.validate(c)
         #expect(flagged.contains(.gridShortcutOverlapsChars("a")))
         #expect(flagged.contains(.gridShortcutOverlapsChars("s")))
@@ -95,6 +90,24 @@ struct ConfigTests {
         c.hint.chars = "asd"
         c.bindings.hint.moveNoAction = ["a"]
         #expect(ConfigValidator.validate(c).contains(.hintShortcutOverlapsChars("a")))
+    }
+
+    @Test func scrollReverseRoundTrips() throws {
+        var config = AppConfig.default
+        config.free.scrollReverseX = true
+        config.free.scrollReverseY = true
+        let decoded = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(decoded.free.scrollReverseX)
+        #expect(decoded.free.scrollReverseY)
+    }
+
+    @Test func scrollReverseDefaultsOff() throws {
+        let text = try ConfigIO.encode(AppConfig.default)
+            .replacingOccurrences(of: "scroll_reverse_x", with: "ignored_reverse_x")
+            .replacingOccurrences(of: "scroll_reverse_y", with: "ignored_reverse_y")
+        let decoded = try ConfigIO.decode(from: text)
+        #expect(decoded.free.scrollReverseX == false)
+        #expect(decoded.free.scrollReverseY == false)
     }
 
     @Test func shortcutParsing() throws {

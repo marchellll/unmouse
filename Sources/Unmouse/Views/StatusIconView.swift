@@ -1,6 +1,11 @@
 import SwiftUI
 import UnmouseCore
 
+/// Draws the menu-bar icon without eating the click, so the status item's menu opens.
+final class StatusIconHost: NSHostingView<StatusIconView> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 struct StatusIconView: View {
     @Bindable var model: AppModel
     @State private var pulse = false
