@@ -91,9 +91,9 @@ public enum TutorialCatalog {
             [
                 .init(id: "f1", prompt: "Tap ⌥ — free mode.", required: .enteredFree),
                 .init(id: "f2", prompt: "Steer with H J K L toward the green target.", required: .steeredAll, arenaFocus: .leftTarget),
-                .init(id: "f3", prompt: "Hold Z and move for 1s — go faster.", required: .heldFaster),
-                .init(id: "f4", prompt: "Hold X and move for 1s — go slower.", required: .heldSlower),
-                .init(id: "f5", prompt: "␣ — click the green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
+                .init(id: "f3", prompt: "Hold Z and move — go faster.", required: .heldFaster),
+                .init(id: "f4", prompt: "Hold X and move — go slower.", required: .heldSlower),
+                .init(id: "f5", prompt: "␣ — click the  green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
                 .init(id: "f6", prompt: "A — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
                 .init(id: "f7", prompt: "Scroll the blue strip — M left, , down, . up, / right.", required: .scrolledAll, arenaFocus: .scroll),
                 .init(id: "f8", prompt: "Q — grab the puck.", required: .dragStarted, arenaFocus: .drag),

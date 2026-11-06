@@ -70,7 +70,12 @@ public final class HeldKeyStore: @unchecked Sendable {
 
 /// Dedupes the same physical key arriving from both the event tap and Karabiner HID.
 public final class KeyDeduper: @unchecked Sendable {
-    private let mutex: Mutex<[String: UInt64]>
+    private struct Seen {
+        var nanos: UInt64
+        var swallow: Bool
+    }
+
+    private let mutex: Mutex<[String: Seen]>
     private let windowNanos: UInt64
 
     public init(windowMillis: UInt64 = 30) {
@@ -82,11 +87,25 @@ public final class KeyDeduper: @unchecked Sendable {
     public func shouldHandle(token: String, down: Bool, nowNanos: UInt64) -> Bool {
         let key = "\(token):\(down)"
         return mutex.withLock { map in
-            if let last = map[key], nowNanos &- last < windowNanos {
+            if let last = map[key], nowNanos &- last.nanos < windowNanos {
                 return false
             }
-            map[key] = nowNanos
+            map[key] = Seen(nanos: nowNanos, swallow: false)
             return true
         }
+    }
+
+    /// Record whether the winning event was swallowed. The other source must replay that,
+    /// because handling may already have left the mode by the time the copy arrives.
+    public func setSwallow(token: String, down: Bool, swallow: Bool) {
+        let key = "\(token):\(down)"
+        mutex.withLock { map in
+            map[key]?.swallow = swallow
+        }
+    }
+
+    public func swallowed(token: String, down: Bool) -> Bool {
+        let key = "\(token):\(down)"
+        return mutex.withLock { $0[key]?.swallow ?? false }
     }
 }

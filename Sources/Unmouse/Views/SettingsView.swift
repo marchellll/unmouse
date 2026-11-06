@@ -131,9 +131,9 @@ struct SettingsView: View {
         }
 
         Section("Mode shortcuts") {
-            bind("Grid mode", global(\.gridMode), hint: "Tap to open the grid on the screen under the pointer. Tap again to cancel. The same tap while dragging opens the grid and keeps the drag.")
-            bind("Free mode", global(\.freeMode), hint: "Tap to drive the pointer from the keyboard. Tap again to leave. On a finished grid cell, this jumps there and enters free mode.")
-            bind("Hint mode", global(\.hintMode), hint: "Labels clickable controls on screen. Type a label to arm it, then confirm.")
+            bind("Grid mode", global(\.gridMode), hint: "Tap to open the grid on the screen under the pointer. Tap again to cancel. From free or hint mode, the same tap switches to the grid. While dragging, the tap keeps the drag.")
+            bind("Free mode", global(\.freeMode), hint: "Tap to drive the pointer from the keyboard. Tap again to leave. From grid or hint mode, the same tap switches to free mode. On a finished grid cell, this jumps there first.")
+            bind("Hint mode", global(\.hintMode), hint: "Labels clickable controls on screen. Type a label to arm it, then confirm. From grid or free mode, this shortcut switches here. Press it again to leave.")
         }
         Section("Input") {
             SteppedIntRow(
@@ -334,8 +334,8 @@ struct SettingsView: View {
     @ViewBuilder private var freePane: some View {
         Section("Motion") {
             speedCurveRow
-            SteppedDoubleRow("Fast multiplier", unit: "×", value: freeDouble(\.fastMultiplier), step: 0.25, hint: "Multiplies the speed curve while Faster is held.")
-            SteppedDoubleRow("Slow multiplier", unit: "×", value: freeDouble(\.slowMultiplier), step: 0.05, hint: "Multiplies the speed curve while Slower is held.")
+            SteppedDoubleRow("Fast multiplier", unit: "×", value: freeDouble(\.fastMultiplier), step: 0.25, hint: "Multiplies pointer and scroll speed while Faster is held.")
+            SteppedDoubleRow("Slow multiplier", unit: "×", value: freeDouble(\.slowMultiplier), step: 0.05, hint: "Multiplies pointer and scroll speed while Slower is held.")
             SteppedDoubleRow("Scroll speed", unit: "lines/s", value: freeDouble(\.scrollSpeed), step: 1, hint: "Top scroll rate while a scroll key is held. The speed curve ramps it over the same seconds as pointer movement. One line is 16 points.")
             optionHint("Reverse scroll", hint: "Flips that scroll axis. X swaps left and right. Y swaps up and down.") {
                 HStack(spacing: 16) {
@@ -345,7 +345,7 @@ struct SettingsView: View {
             }
             optionHint(
                 "Leave on action",
-                hint: "A Command, Option, or Control chord, a mouse click, or any other key leaves free mode. Off keeps free mode up. Those chords still reach the app either way."
+                hint: "A Command, Option, or Control chord, a mouse click, or any other key leaves free mode. Off keeps free mode up. Chords still reach the app. ⌘ plus a scroll key is sent as ⌘-scroll so the app can zoom. Faster and Slower stay here and scale pointer and scroll speed."
             ) {
                 Toggle("", isOn: freeBool(\.exitOnAction)).labelsHidden()
             }
@@ -389,8 +389,8 @@ struct SettingsView: View {
             bind("Move down", freeBind(\.moveDown))
             bind("Move up", freeBind(\.moveUp))
             bind("Move right", freeBind(\.moveRight))
-            bind("Faster", freeBind(\.faster), hint: "Hold to apply the fast multiplier. Releasing returns to normal speed.")
-            bind("Slower", freeBind(\.slower), hint: "Hold to apply the slow multiplier. Releasing returns to normal speed.")
+            bind("Faster", freeBind(\.faster), hint: "Hold to multiply pointer and scroll speed. Releasing returns to normal.")
+            bind("Slower", freeBind(\.slower), hint: "Hold to multiply pointer and scroll speed. Releasing returns to normal.")
             bind("Scroll up", freeBind(\.scrollUp))
             bind("Scroll down", freeBind(\.scrollDown))
             bind("Scroll left", freeBind(\.scrollLeft))

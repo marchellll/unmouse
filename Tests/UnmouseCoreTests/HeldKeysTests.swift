@@ -36,4 +36,21 @@ struct HeldKeysTests {
         #expect(!deduper.shouldHandle(token: "h", down: true, nowNanos: 2_000))
         #expect(deduper.shouldHandle(token: "h", down: true, nowNanos: 100_000_000))
     }
+
+    @Test func duplicateReplaysSwallowDecision() {
+        let deduper = KeyDeduper(windowMillis: 50)
+        #expect(deduper.shouldHandle(token: "escape", down: true, nowNanos: 1_000))
+        deduper.setSwallow(token: "escape", down: true, swallow: true)
+        #expect(!deduper.shouldHandle(token: "escape", down: true, nowNanos: 2_000))
+        #expect(deduper.swallowed(token: "escape", down: true))
+        #expect(!deduper.swallowed(token: "escape", down: false))
+
+        #expect(deduper.shouldHandle(token: "a", down: true, nowNanos: 1_000))
+        deduper.setSwallow(token: "a", down: true, swallow: false)
+        #expect(!deduper.shouldHandle(token: "a", down: true, nowNanos: 2_000))
+        #expect(!deduper.swallowed(token: "a", down: true))
+
+        #expect(deduper.shouldHandle(token: "escape", down: true, nowNanos: 100_000_000))
+        #expect(!deduper.swallowed(token: "escape", down: true))
+    }
 }

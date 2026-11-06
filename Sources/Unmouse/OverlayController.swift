@@ -173,6 +173,15 @@ final class OverlayController {
         hintPanel = nil
     }
 
+    func hideFreeDot() {
+        freeDotPanel?.orderOut(nil)
+        freeDotPanel = nil
+        freeDotView = nil
+        if gridPanels.isEmpty {
+            stopBlendKeepalive()
+        }
+    }
+
     func updateCoach() {
         guard let model else { return }
 

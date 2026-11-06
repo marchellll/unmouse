@@ -27,6 +27,11 @@ final class FreeMotion {
         scrollHeld = 0
         scrollFracX = 0
         scrollFracY = 0
+        // ponytail: speedDemoHeld stays. tap reset calls resetAll often; wiping the
+        // Z/X clock there made the tutorial step never reach 1s while HID still moved.
+    }
+
+    func resetSpeedDemo() {
         speedDemoHeld = 0
     }
 
@@ -48,6 +53,15 @@ final class FreeMotion {
                 }
             }
         }
+    }
+
+    /// Arrow moves and scroll keys. Both can drop Z/X while they are still down.
+    func speedKeyHeld(bindings: BindingTable.Free) -> Bool {
+        if arrowMoveHeld(bindings: bindings) { return true }
+        for direction in MoveDirection.allCases {
+            if bindingHeld(bindings.scrollRaw[direction] ?? [], chordDown: false) { return true }
+        }
+        return false
     }
 
     func arrowMoveHeld(bindings: BindingTable.Free) -> Bool {
@@ -93,6 +107,10 @@ final class FreeMotion {
         chordModifierDown([])
     }
 
+    func commandDown() -> Bool {
+        CGEventSource.flagsState(.hidSystemState).contains(.maskCommand)
+    }
+
     func chordModifierDown(_ flags: CGEventFlags) -> Bool {
         let live = CGEventSource.flagsState(.hidSystemState)
         let merged = CGEventFlags(rawValue: flags.rawValue | live.rawValue)
@@ -104,7 +122,7 @@ final class FreeMotion {
         var result = MotionResult()
         if speedLatch.releasePending {
             speedLatch.sync(
-                arrowHeld: arrowMoveHeld(bindings: bindings),
+                arrowHeld: speedKeyHeld(bindings: bindings),
                 fasterHID: hidDown(bindings.fasterRaw),
                 slowerHID: hidDown(bindings.slowerRaw),
                 nowNanos: DispatchTime.now().uptimeNanoseconds
@@ -112,9 +130,10 @@ final class FreeMotion {
         }
         var speedMult = 1.0
         let chordDown = liveChordModifierDown()
-        let fasterOn = speedLatch.faster || (!chordDown && hidDown(bindings.fasterRaw))
+        // Physical Z/X still counts while ⌘ is held.
+        let fasterOn = speedLatch.faster || hidDown(bindings.fasterRaw)
             || bindingHeld(bindings.fasterRaw, chordDown: chordDown)
-        let slowerOn = speedLatch.slower || (!chordDown && hidDown(bindings.slowerRaw))
+        let slowerOn = speedLatch.slower || hidDown(bindings.slowerRaw)
             || bindingHeld(bindings.slowerRaw, chordDown: chordDown)
         result.faster = fasterOn
         result.slower = slowerOn
@@ -125,8 +144,12 @@ final class FreeMotion {
         let right = bindingHeld(bindings.moveRaw[.right] ?? [], chordDown: chordDown)
         let up = bindingHeld(bindings.moveRaw[.up] ?? [], chordDown: chordDown)
         let down = bindingHeld(bindings.moveRaw[.down] ?? [], chordDown: chordDown)
-        if left || right || up || down {
+        // Direction held counts as moved for the Z/X tutorial clock — pixel step can
+        // be 0 for a frame (accel at 0, subpixel) while the user is clearly steering.
+        let steering = left || right || up || down
+        if steering {
             moveHeld += min(dt, 0.05)
+            result.moved = true
         } else {
             moveHeld = 0
         }
@@ -140,7 +163,6 @@ final class FreeMotion {
         if down { dy += step }
         if dx != 0 || dy != 0 {
             PointerController.moveBy(dx: dx, dy: dy, dragging: dragging)
-            result.moved = true
         }
 
         let scrollUp = bindingHeld(bindings.scrollRaw[.up] ?? [], chordDown: chordDown)
@@ -165,7 +187,15 @@ final class FreeMotion {
             scrollFracY -= sdy
             let xSign = free.scrollReverseX ? -1.0 : 1.0
             let ySign = free.scrollReverseY ? -1.0 : 1.0
-            PointerController.scroll(dx: sdx * xSign, dy: sdy * ySign)
+            let x = sdx * xSign
+            let y = sdy * ySign
+            // Vertical ⌘-scroll is how apps zoom. Horizontal stays plain.
+            if y != 0, commandDown() {
+                PointerController.scroll(dx: 0, dy: y, command: true)
+                if x != 0 { PointerController.scroll(dx: x, dy: 0) }
+            } else {
+                PointerController.scroll(dx: x, dy: y)
+            }
             result.scrolled = true
         }
         return result

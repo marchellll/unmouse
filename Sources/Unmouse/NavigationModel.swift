@@ -35,6 +35,9 @@ final class NavigationModel {
     private let displayLink = DisplayLinkDriver()
     private var lastFlags: CGEventFlags = []
     private var consumeFreeExitUp = false
+    /// Action key (space, esc, …) whose key-down already ran and left the mode.
+    /// Held until release so the key-up, repeats, and the other input source cannot reach the focused app.
+    private var swallowUpToken: String?
     private var lastLeftClickNanos: UInt64 = 0
     private var lastModeActivityNanos: UInt64 = 0
     private var modeWatchTimer: DispatchSourceTimer?
@@ -108,6 +111,11 @@ final class NavigationModel {
             screenOrigin: screen.frame.origin,
             screenSize: screen.frame.size
         )
+        stopDisplayLink()
+        hintState = HintState()
+        hintBubbles = []
+        app.overlayController?.hideHints()
+        app.overlayController?.hideFreeDot()
         mode = .grid
         bumpModeActivity()
         startModeWatch()
@@ -119,6 +127,7 @@ final class NavigationModel {
     func enterFree(fromGrid: Bool) {
         InputTrace.log("mode → free fromGrid=\(fromGrid)")
         motion.resetMotionClocks()
+        motion.resetSpeedDemo()
         motion.releaseStaleMoveHolds(bindings: bindings.free)
         mode = .free
         hintState = HintState()
@@ -138,12 +147,15 @@ final class NavigationModel {
         InputTrace.log("mode → hint")
         hintLoadGeneration &+= 1
         let generation = hintLoadGeneration
+        stopDisplayLink()
+        gridState = nil
         hintState = HintState()
         hintBubbles = []
         mode = .hint
         bumpModeActivity()
         startModeWatch()
         app.overlayController?.hideGrid()
+        app.overlayController?.hideFreeDot()
         app.overlayController?.showHints()
         app.overlayController?.updateCoach()
         onTutorial?(.enteredHint)
@@ -183,6 +195,7 @@ final class NavigationModel {
         }
         eventTap.onTapReset = { [weak self] in
             InputTrace.log("nav tapReset → motion.resetAll() held was \(self?.motion.heldKeys.heldTokens() ?? [])")
+            self?.swallowUpToken = nil
             self?.motion.resetAll()
         }
     }
@@ -218,7 +231,12 @@ final class NavigationModel {
             return swallow
         }
 
-        if passFreeChord(token: token, flags: flags, down: down) {
+        // Hint's shortcut is usually a chord (⌘⇧Space). Do not hand that key to the focused app.
+        let hintShortcut = bindings.global.hintMode.matches(key: kind, flags: flags, alone: false)
+        // ⌘ + a scroll key stays here. The wheel event keeps ⌘ so the app zooms.
+        // Z/X stay here too, including under ⌘, so they scale that scroll.
+        let keepSpeed = mode == .free && isFreeSpeedKey(kind)
+        if !hintShortcut, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed, passFreeChord(token: token, flags: flags, down: down) {
             InputTrace.log("nav chord passthrough \(token) \(down ? "↓" : "↑")")
             return false
         }
@@ -235,23 +253,35 @@ final class NavigationModel {
         updateSpeedModifierFlags(kind: kind, down: down, source: source, nowNanos: eventNanos)
         if motion.speedLatch.releasePending {
             motion.speedLatch.sync(
-                arrowHeld: motion.arrowMoveHeld(bindings: bindings.free),
+                arrowHeld: motion.speedKeyHeld(bindings: bindings.free),
                 fasterHID: motion.hidDown(bindings.free.fasterRaw),
                 slowerHID: motion.hidDown(bindings.free.slowerRaw),
                 nowNanos: eventNanos
             )
         }
+        let holdAction = swallowUpToken == token
+        if holdAction, !down { swallowUpToken = nil }
         guard motion.deduper.shouldHandle(token: token, down: down, nowNanos: eventNanos) else {
-            let swallow = mode != .idle
+            let swallow = holdAction || motion.deduper.swallowed(token: token, down: down) || mode != .idle
             InputTrace.log("nav dedupe skip \(token) \(down ? "↓" : "↑") swallow=\(swallow)")
             return swallow
         }
+        if mode != .idle {
+            // Handler may return to idle before the event-tap copy of this key is delivered.
+            motion.deduper.setSwallow(token: token, down: down, swallow: true)
+        }
         let swallow: Bool
-        if !down {
+        if holdAction {
+            swallow = true
+        } else if !down {
             swallow = handleKeyUp(kind: kind, flags: flags, alone: alone)
         } else {
             swallow = handleKeyDown(kind: kind, flags: flags)
+            if swallow, mode == .idle {
+                swallowUpToken = token
+            }
         }
+        motion.deduper.setSwallow(token: token, down: down, swallow: swallow)
         InputTrace.log("nav result \(token) \(down ? "↓" : "↑") swallow=\(swallow) mode=\(mode.rawValue)")
         return swallow
     }
@@ -267,7 +297,7 @@ final class NavigationModel {
         guard source == .tap || mode != .free else { return }
         motion.speedLatch.keyUp(
             faster: faster, slower: slower,
-            arrowHeld: motion.arrowMoveHeld(bindings: bindings.free),
+            arrowHeld: motion.speedKeyHeld(bindings: bindings.free),
             hidDown: motion.hidDown(kind),
             nowNanos: nowNanos
         )
@@ -276,11 +306,23 @@ final class NavigationModel {
     private func handleKeyDown(kind: KeyKind, flags: CGEventFlags) -> Bool {
         guard app.accessibilityTrusted else { return false }
         let global = bindings.global
+        // Chord form of the hint shortcut (not a bare modifier). Works from every mode.
+        // The same shortcut leaves hint, matching grid and free.
+        if global.hintMode.matches(key: kind, flags: flags, alone: false) {
+            if mode == .hint {
+                InputTrace.log("nav → leave hint")
+                exitToIdle(keepDrag: dragging)
+                onTutorial?(.cancelled)
+            } else {
+                InputTrace.log("nav → enterHint from \(mode.rawValue)")
+                enterHint()
+            }
+            return true
+        }
         switch mode {
         case .idle:
             if global.gridMode.matches(key: kind, flags: flags, alone: false), kind.isModifier { return false }
             if global.freeMode.matches(key: kind, flags: flags, alone: false), kind.isModifier { return false }
-            if global.hintMode.matches(key: kind, flags: flags, alone: false) { enterHint(); return true }
             if isLeftClickKey(kind, flags: flags), performLeftClick(secondOnly: true) { return true }
             return false
         case .grid:
@@ -303,18 +345,19 @@ final class NavigationModel {
         if alone {
             let gridTap = global.gridMode.matches(key: kind, flags: [], alone: true)
             let freeTap = global.freeMode.matches(key: kind, flags: [], alone: true)
-            InputTrace.log("nav alone-up \(token) gridTap=\(gridTap) freeTap=\(freeTap) mode=\(mode.rawValue)")
+            let hintTap = global.hintMode.matches(key: kind, flags: [], alone: true)
+            InputTrace.log(
+                "nav alone-up \(token) gridTap=\(gridTap) freeTap=\(freeTap) hintTap=\(hintTap) mode=\(mode.rawValue)"
+            )
             if gridTap {
                 if mode == .grid {
                     InputTrace.log("nav → cancelGrid")
                     cancelGrid()
                     return false
                 }
-                if mode == .free || mode == .idle {
-                    InputTrace.log("nav → enterGrid")
-                    enterGrid()
-                    return false
-                }
+                InputTrace.log("nav → enterGrid")
+                enterGrid()
+                return false
             }
             if freeTap {
                 if mode == .grid, let center = gridState?.prospectiveCenter {
@@ -323,16 +366,25 @@ final class NavigationModel {
                     enterFree(fromGrid: true)
                     return false
                 }
-                if mode == .idle {
-                    InputTrace.log("nav → enterFree")
-                    enterFree(fromGrid: false)
-                    return false
-                }
                 if mode == .free {
                     InputTrace.log("nav → exitToIdle")
                     exitToIdle()
                     return false
                 }
+                InputTrace.log("nav → enterFree")
+                enterFree(fromGrid: false)
+                return false
+            }
+            if hintTap {
+                if mode == .hint {
+                    InputTrace.log("nav → leave hint")
+                    exitToIdle(keepDrag: dragging)
+                    onTutorial?(.cancelled)
+                } else {
+                    InputTrace.log("nav → enterHint")
+                    enterHint()
+                }
+                return false
             }
         }
         return mode != .idle && !kind.isModifier
@@ -489,16 +541,34 @@ final class NavigationModel {
         if steered { onTutorial?(.moved); return true }
         var didScroll = false
         for direction in MoveDirection.allCases {
-            if bindings.matchesScroll(direction, key: kind, flags: flags) {
+            if matchesFreeScroll(direction, key: kind, flags: flags) {
                 onTutorial?(.scrolled(direction)); didScroll = true
             }
         }
         if didScroll { return true }
-        if b.faster.matches(key: kind, flags: flags, alone: false)
-            || b.slower.matches(key: kind, flags: flags, alone: false) { return true }
+        if isFreeSpeedKey(kind) { return true }
         if kind.isModifier { return false }
         if app.config.free.exitOnAction { endFreeModeIfNeeded(); return false }
         return true
+    }
+
+    /// Faster/slower ignore held modifiers. ⌘Z would otherwise type Undo instead of speeding the scroll.
+    private func isFreeSpeedKey(_ kind: KeyKind) -> Bool {
+        bindings.free.faster.matches(key: kind, flags: [], alone: false)
+            || bindings.free.slower.matches(key: kind, flags: [], alone: false)
+    }
+
+    /// Scroll bindings ignore a held ⌘, so ⌘-scroll is captured instead of typed into the app.
+    private func matchesFreeScroll(_ direction: MoveDirection, key: KeyKind, flags: CGEventFlags) -> Bool {
+        if bindings.matchesScroll(direction, key: key, flags: flags) { return true }
+        guard flags.contains(.maskCommand) else { return false }
+        let bare = CGEventFlags(rawValue: flags.rawValue & ~CGEventFlags.maskCommand.rawValue)
+        return bindings.matchesScroll(direction, key: key, flags: bare)
+    }
+
+    private func capturesCommandScroll(kind: KeyKind, flags: CGEventFlags) -> Bool {
+        guard mode == .free, flags.contains(.maskCommand) else { return false }
+        return MoveDirection.allCases.contains { matchesFreeScroll($0, key: kind, flags: flags) }
     }
 
     /// Command/Option/Control plus a non-held key: let it through, but remember to pass the key-up.
@@ -651,7 +721,10 @@ final class NavigationModel {
             required: app.tutorial?.progress?.current?.required,
             faster: result.faster, slower: result.slower,
             moved: result.moved, dt: min(dt, 0.05)
-        ) { onTutorial?(ev) }
+        ) {
+            InputTrace.log("speedDemo done → \(ev)")
+            onTutorial?(ev)
+        }
         app.overlayController?.syncFreeDot(dragging: dragging)
     }
 

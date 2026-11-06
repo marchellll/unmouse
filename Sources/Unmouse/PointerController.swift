@@ -117,7 +117,8 @@ enum PointerController {
     }
 
     /// Continuous pixel scroll. Line units only move after a whole line, which feels stuck.
-    static func scroll(dx: Double, dy: Double) {
+    /// `command` keeps ⌘ on the event so the app treats a vertical scroll as zoom.
+    static func scroll(dx: Double, dy: Double, command: Bool = false) {
         let ix = Int32(dx.rounded())
         let iy = Int32(dy.rounded())
         guard ix != 0 || iy != 0 else { return }
@@ -138,13 +139,14 @@ enum PointerController {
         // An unplaced scroll event carries a mouse delta and walks the cursor.
         event.setIntegerValueField(.mouseEventDeltaX, value: 0)
         event.setIntegerValueField(.mouseEventDeltaY, value: 0)
-        send(event)
+        send(event, flags: command ? .maskCommand : [])
     }
 
     /// Drop keyboard modifiers. The free-mode Option tap otherwise sticks, and an Option-click hides the app underneath.
-    private static func send(_ event: CGEvent?) {
+    /// Scroll may keep Command so the focused app zooms.
+    private static func send(_ event: CGEvent?, flags: CGEventFlags = []) {
         guard let event else { return }
-        event.flags = []
+        event.flags = flags
         event.setIntegerValueField(.eventSourceUserData, value: marker)
         event.post(tap: .cghidEventTap)
     }
