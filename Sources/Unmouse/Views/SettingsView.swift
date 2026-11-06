@@ -109,16 +109,16 @@ struct SettingsView: View {
         }
 
         Section {
-            Toggle("Coach", isOn: $model.coachEnabled)
+            Toggle("Coach", isOn: $model.tutorial.coachEnabled)
                 .help("While a mode is on, shows what you can do next.")
-                .onChange(of: model.coachEnabled) { _, _ in
+                .onChange(of: model.tutorial.coachEnabled) { _, _ in
                     model.overlayController?.updateCoach()
                 }
             Menu("Tutorial") {
                 Button("Install walkthrough") { model.showWalkthrough = true }
                 Divider()
                 ForEach(TutorialSessionID.allCases, id: \.self) { session in
-                    Button(session.title) { model.startTutorial(session) }
+                    Button(session.title) { model.tutorial.start(session) }
                 }
             }
             Toggle("Open at login", isOn: launchAtLoginBinding)
@@ -456,31 +456,29 @@ struct SettingsView: View {
 
     // MARK: Bindings into model.config
 
-    private var karabinerBinding: Binding<Bool> {
+    private func configBind<T>(
+        _ keyPath: WritableKeyPath<AppConfig, T>,
+        clamp: ((T) -> T)? = nil
+    ) -> Binding<T> {
         Binding(
-            get: { model.config.input.karabiner },
-            set: { model.config.input.karabiner = $0; commit() }
+            get: { model.config[keyPath: keyPath] },
+            set: {
+                model.config[keyPath: keyPath] = clamp?($0) ?? $0
+                commit()
+            }
         )
+    }
+
+    private var karabinerBinding: Binding<Bool> {
+        configBind(\.input.karabiner)
     }
 
     private var tapMaxMsBinding: Binding<Int> {
-        Binding(
-            get: { model.config.input.tapMaxMs },
-            set: {
-                model.config.input.tapMaxMs = min(max($0, 50), 800)
-                commit()
-            }
-        )
+        configBind(\.input.tapMaxMs) { $0.clamped(to: 50...800) }
     }
 
     private var modeTimeoutBinding: Binding<Double> {
-        Binding(
-            get: { model.config.input.modeTimeoutS },
-            set: {
-                model.config.input.modeTimeoutS = min(max($0, 0), 600)
-                commit()
-            }
-        )
+        configBind(\.input.modeTimeoutS) { $0.clamped(to: 0...600) }
     }
 
     private var logLevelBinding: Binding<LogLevel> {
@@ -529,7 +527,7 @@ struct SettingsView: View {
         Binding(
             get: { model.config.grid[keyPath: keyPath] },
             set: {
-                model.config.grid[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound)
+                model.config.grid[keyPath: keyPath] = $0.clamped(to: range)
                 commit()
             }
         )
@@ -539,7 +537,7 @@ struct SettingsView: View {
         Binding(
             get: { model.config.grid[keyPath: keyPath] },
             set: {
-                model.config.grid[keyPath: keyPath] = min(max($0, range.lowerBound), range.upperBound)
+                model.config.grid[keyPath: keyPath] = $0.clamped(to: range)
                 commit()
             }
         )
@@ -565,7 +563,7 @@ struct SettingsView: View {
         Binding(
             get: { model.config.free.accelSeconds },
             set: { raw in
-                let next = min(30, max(1, raw))
+                let next = raw.clamped(to: 1...30)
                 let current = model.config.free.accelSeconds
                 guard next != current, current > 0 else { return }
                 model.config.free.accelSeconds = next
@@ -1014,47 +1012,32 @@ struct GridPreview: View {
 @MainActor
 final class SettingsWindowController {
     static let shared = SettingsWindowController()
-    private var window: NSWindow?
+    private let host = HostingWindowController<SettingsView>(
+        title: "Unmouse Settings",
+        contentSize: NSSize(width: 800, height: 600),
+        styleMask: [.titled, .closable, .resizable, .miniaturizable]
+    )
 
     func show(model: AppModel) {
-        if window == nil {
-            let hosting = NSHostingController(rootView: SettingsView(model: model))
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Unmouse Settings"
-            window.styleMask = [.titled, .closable, .resizable, .miniaturizable]
-            window.setContentSize(NSSize(width: 800, height: 600))
-            window.center()
-            self.window = window
-        }
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        host.show(rootView: SettingsView(model: model))
     }
 }
 
 @MainActor
 final class WalkthroughWindowController {
     static let shared = WalkthroughWindowController()
-    private var window: NSWindow?
+    private let host = HostingWindowController<WalkthroughView>(
+        title: "Unmouse Setup",
+        contentSize: NSSize(width: 420, height: 280),
+        styleMask: [.titled, .closable]
+    )
 
     func show(model: AppModel) {
-        if let window, window.isVisible {
-            return
-        }
-        if window == nil {
-            let hosting = NSHostingController(rootView: WalkthroughView(model: model))
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Unmouse Setup"
-            window.styleMask = [.titled, .closable]
-            window.setContentSize(NSSize(width: 420, height: 280))
-            window.center()
-            window.isReleasedWhenClosed = false
-            self.window = window
-        }
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if host.isVisible { return }
+        host.show(rootView: WalkthroughView(model: model))
     }
 
     func close() {
-        window?.orderOut(nil)
+        host.close()
     }
 }

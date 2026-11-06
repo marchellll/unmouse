@@ -20,3 +20,8 @@ public enum GridFinalizeAction: Sendable, Equatable {
     case moveOnly
     case toFree
 }
+
+/// Pointer or scroll axis used by free-mode bindings and the tutorial.
+public enum MoveDirection: String, Sendable, Equatable, CaseIterable {
+    case left, down, up, right
+}

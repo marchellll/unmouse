@@ -21,7 +21,7 @@ struct CoachView: View {
     }
 
     private var modeTitle: String {
-        switch model.mode {
+        switch model.nav.mode {
         case .idle: "Idle"
         case .grid: "Grid — next"
         case .free: "Free — next"
@@ -32,7 +32,7 @@ struct CoachView: View {
     /// What the user can do right now, given mode progress.
     private var lines: [String] {
         let b = model.config.bindings
-        switch model.mode {
+        switch model.nav.mode {
         case .idle:
             return []
         case .grid:
@@ -45,7 +45,7 @@ struct CoachView: View {
     }
 
     private func gridNext(_ b: BindingsConfig) -> [String] {
-        guard let state = model.gridState else {
+        guard let state = model.nav.gridState else {
             return ["Type a cell label"]
         }
         let space = label(b.grid.leftClick)
@@ -85,7 +85,7 @@ struct CoachView: View {
         let drag = label(b.free.toggleDrag)
         let cancel = label(b.free.cancel)
 
-        if model.dragging {
+        if model.nav.dragging {
             return [
                 "\(click) or \(drag) drop",
                 "\(move) drag · \(cancel) cancel",
@@ -104,7 +104,7 @@ struct CoachView: View {
         let free = label(b.hint.toFree)
         let back = label(b.hint.back)
         let cancel = label(b.hint.cancel)
-        let state = model.hintState
+        let state = model.nav.hintState
 
         if state.targets.isEmpty {
             return ["Scanning controls…"]

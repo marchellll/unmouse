@@ -6,9 +6,12 @@ import UnmouseCore
 final class EventTapController {
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
-    var onKey: ((KeyKind, CGEventFlags, Bool, Bool) -> Bool)?
+    /// kind, flags, down, alone, eventNanos
+    var onKey: ((KeyKind, CGEventFlags, Bool, Bool, UInt64) -> Bool)?
     /// Physical mouse button. Never swallowed.
     var onMouseDown: (() -> Void)?
+    /// Tap was disabled (timeout or user input). Held keys may have missed a key-up.
+    var onTapReset: (() -> Void)?
     private var alone = AloneTapTracker()
     private var maxTapMs: UInt64 = 200
 
@@ -68,37 +71,50 @@ final class EventTapController {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            InputTrace.log("tap DISABLED (\(type == .tapDisabledByTimeout ? "timeout" : "userInput")) — re-enable + reset")
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            onTapReset?()
             return Unmanaged.passUnretained(event)
         }
         if PointerController.isOurs(event) {
             return Unmanaged.passUnretained(event)
         }
         if let tap, !CGEvent.tapIsEnabled(tap: tap) {
+            InputTrace.log("tap was off — re-enable")
             CGEvent.tapEnable(tap: tap, enable: true)
         }
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
         let flags = event.flags
+        let nanos = Self.eventNanos(event)
         let swallow: Bool
 
         switch type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            InputTrace.log("mouseDown button=\(type.rawValue)")
             onMouseDown?()
             return Unmanaged.passUnretained(event)
         case .keyDown:
             _ = alone.handle(.otherKey)
             guard let kind = KeyCodes.kind(from: keyCode) else {
+                InputTrace.log("tap keyDown code=\(keyCode) UNKNOWN — pass")
                 return Unmanaged.passUnretained(event)
             }
-            swallow = onKey?(kind, flags, true, false) ?? false
+            swallow = onKey?(kind, flags, true, false, nanos) ?? false
+            InputTrace.log(
+                "tap keyDown \(KeyCodes.token(for: kind)) flags=\(InputTrace.flags(flags)) → \(swallow ? "SWALLOW" : "pass") t=\(nanos)"
+            )
         case .keyUp:
             guard let kind = KeyCodes.kind(from: keyCode) else {
+                InputTrace.log("tap keyUp code=\(keyCode) UNKNOWN — pass")
                 return Unmanaged.passUnretained(event)
             }
-            swallow = onKey?(kind, flags, false, false) ?? false
+            swallow = onKey?(kind, flags, false, false, nanos) ?? false
+            InputTrace.log(
+                "tap keyUp \(KeyCodes.token(for: kind)) flags=\(InputTrace.flags(flags)) → \(swallow ? "SWALLOW" : "pass") t=\(nanos)"
+            )
         case .flagsChanged:
-            swallow = handleFlagsChanged(keyCode: keyCode, flags: flags, nowNanos: DispatchTime.now().uptimeNanoseconds)
+            swallow = handleFlagsChanged(keyCode: keyCode, flags: flags, nowNanos: nanos)
         default:
             return Unmanaged.passUnretained(event)
         }
@@ -107,20 +123,35 @@ final class EventTapController {
     }
 
     private func handleFlagsChanged(keyCode: CGKeyCode, flags: CGEventFlags, nowNanos: UInt64) -> Bool {
-        guard let kind = KeyCodes.kind(from: keyCode), kind.isModifier else { return false }
+        guard let kind = KeyCodes.kind(from: keyCode), kind.isModifier else {
+            InputTrace.log("tap flagsChanged code=\(keyCode) not a tracked modifier — pass")
+            return false
+        }
         let isDown = Self.modifierPressed(kind, flags: flags)
         let token = kind.configToken
         switch alone.handle(.modifier(token: token, down: isDown, nowNanos: nowNanos)) {
         case .ignored:
+            InputTrace.log("tap flags \(token) \(isDown ? "down" : "up") alone=ignored flags=\(InputTrace.flags(flags))")
             return false
         case .down:
-            _ = onKey?(kind, flags, true, false)
+            _ = onKey?(kind, flags, true, false, nowNanos)
+            InputTrace.log("tap flags \(token) down alone=no flags=\(InputTrace.flags(flags)) → pass (never swallow)")
             return false
         case .up(let wasAlone):
             // Never swallow. A missing key-up leaves Option, Command, Control, or Shift held in every app.
-            _ = onKey?(kind, flags, false, wasAlone)
+            _ = onKey?(kind, flags, false, wasAlone, nowNanos)
+            InputTrace.log(
+                "tap flags \(token) up alone=\(wasAlone) flags=\(InputTrace.flags(flags)) → pass (never swallow)"
+            )
             return false
         }
+    }
+
+    /// Event time in nanoseconds since boot, for ordering against Karabiner HID stamps.
+    /// `CGEvent.timestamp` is already CGEventTimestamp (UInt64 nanos). Multiplying by
+    /// 1e9 overflows and traps under Swift's checked arithmetic.
+    static func eventNanos(_ event: CGEvent) -> UInt64 {
+        event.timestamp
     }
 
     private static func modifierPressed(_ kind: KeyKind, flags: CGEventFlags) -> Bool {

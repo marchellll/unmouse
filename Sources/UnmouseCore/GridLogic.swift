@@ -35,8 +35,6 @@ public struct GridState: Equatable, Sendable {
     public var screenIndex: Int
     public var levels: [GridLevel]
     public var selectedCell: GridCellIndex?
-    /// Alphabets replaced while descending, so back returns to the parent clump.
-    var savedChars: [String] = []
 
     public init(
         rows: Int,
@@ -126,26 +124,6 @@ public struct GridState: Equatable, Sendable {
         )
     }
 
-    public var selectedFrame: CGRect? {
-        guard let cell = selectedCell else { return nil }
-        return CoordinateSpace.cellFrame(
-            screenOrigin: currentLevel.origin,
-            screenSize: currentLevel.size,
-            rows: rows,
-            cols: cols,
-            row: cell.row,
-            col: cell.col
-        )
-    }
-
-    public func resolvedCell() -> GridCellIndex? {
-        if let selectedCell { return selectedCell }
-        let typed = currentLevel.typed
-        guard typed.count == labelWidth else { return nil }
-        guard let idx = labels.firstIndex(of: typed) else { return nil }
-        return GridCellIndex(row: idx / cols, col: idx % cols)
-    }
-
     public mutating func typeCharacter(_ ch: Character) -> GridTypeResult {
         let c = Character(ch.lowercased())
         if isCellSelected {
@@ -189,9 +167,6 @@ public struct GridState: Equatable, Sendable {
         }
         if levels.count > 1 {
             levels.removeLast()
-            if let previous = savedChars.popLast() {
-                chars = previous
-            }
             selectedCell = nil
             if levels.count == 1 {
                 rows = rootRows
@@ -227,10 +202,6 @@ public struct GridState: Equatable, Sendable {
 
     public mutating func resetScreen(origin: CGPoint, size: CGSize, index: Int) {
         screenIndex = index
-        if let root = savedChars.first {
-            chars = root
-        }
-        savedChars.removeAll()
         levels = [GridLevel(origin: origin, size: size)]
         rows = rootRows
         cols = rootCols

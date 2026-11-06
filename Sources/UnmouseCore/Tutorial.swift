@@ -35,7 +35,9 @@ public enum TutorialEvent: Equatable, Sendable {
     case steeredAll
     case heldFaster
     case heldSlower
-    case scrolled
+    /// One free-mode scroll direction. The scroll step waits until every direction has arrived.
+    case scrolled(MoveDirection)
+    case scrolledAll
     case dragStarted
     case dragDropped
     case gridToFree
@@ -48,12 +50,6 @@ public enum TutorialEvent: Equatable, Sendable {
     case hitRightTarget
     /// Dropped the arena drag puck on the drop zone.
     case hitDragDrop
-    /// Scrolled the arena scroll strip.
-    case hitScroll
-}
-
-public enum MoveDirection: String, Sendable, Equatable, CaseIterable {
-    case left, down, up, right
 }
 
 public enum TutorialArenaFocus: String, Sendable, Equatable {
@@ -95,11 +91,11 @@ public enum TutorialCatalog {
             [
                 .init(id: "f1", prompt: "Tap ⌥ — free mode.", required: .enteredFree),
                 .init(id: "f2", prompt: "Steer with H J K L toward the green target.", required: .steeredAll, arenaFocus: .leftTarget),
-                .init(id: "f3", prompt: "Hold Z and move — go faster.", required: .heldFaster),
-                .init(id: "f4", prompt: "Hold X and move — go slower.", required: .heldSlower),
+                .init(id: "f3", prompt: "Hold Z and move for 1s — go faster.", required: .heldFaster),
+                .init(id: "f4", prompt: "Hold X and move for 1s — go slower.", required: .heldSlower),
                 .init(id: "f5", prompt: "␣ — click the green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
                 .init(id: "f6", prompt: "A — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
-                .init(id: "f7", prompt: "Scroll the blue strip — M left, , down, . up, / right.", required: .hitScroll, arenaFocus: .scroll),
+                .init(id: "f7", prompt: "Scroll the blue strip — M left, , down, . up, / right.", required: .scrolledAll, arenaFocus: .scroll),
                 .init(id: "f8", prompt: "Q — grab the puck.", required: .dragStarted, arenaFocus: .drag),
                 .init(id: "f9", prompt: "Drag the puck into the ring, then ␣ to drop.", required: .hitDragDrop, arenaFocus: .drag),
                 .init(id: "f10", prompt: "⎋ — leave free mode.", required: .cancelled),
@@ -147,16 +143,19 @@ public struct TutorialProgress: Equatable, Sendable {
     public var session: TutorialSessionID
     public var stepIndex: Int
     public var completed: Bool
-    public var score: Int
-    private var steered: Set<MoveDirection> = []
+    /// Z/X steps advance only after this much movement with that modifier held.
+    public static let speedDemoSeconds: TimeInterval = 1
+    /// Directions seen for the current all-of-them step (steer or scroll).
+    private var directions: Set<MoveDirection> = []
+    /// Movement time on the current Z or X step. Resets if the modifier or the move stops.
+    private var speedMove: TimeInterval = 0
     /// The aim-then-act cell step shows the Option instruction up front, then waits for both actions.
     private var cellChosen = false
 
-    public init(session: TutorialSessionID, stepIndex: Int = 0, completed: Bool = false, score: Int = 0) {
+    public init(session: TutorialSessionID, stepIndex: Int = 0, completed: Bool = false) {
         self.session = session
         self.stepIndex = stepIndex
         self.completed = completed
-        self.score = score
     }
 
     public var steps: [TutorialStep] {
@@ -179,8 +178,11 @@ public struct TutorialProgress: Equatable, Sendable {
             return true
         }
         if case .steered(let direction) = event, step.required == .steeredAll {
-            steered.insert(direction)
-            guard steered.count == MoveDirection.allCases.count else { return false }
+            directions.insert(direction)
+            guard directions.count == MoveDirection.allCases.count else { return false }
+        } else if case .scrolled(let direction) = event, step.required == .scrolledAll {
+            directions.insert(direction)
+            guard directions.count == MoveDirection.allCases.count else { return false }
         } else if step.required == .gridToFree {
             if event == .typedGridCell {
                 cellChosen = true
@@ -190,13 +192,36 @@ public struct TutorialProgress: Equatable, Sendable {
         } else if event != step.required {
             return false
         }
-        steered.removeAll()
+        directions.removeAll()
         cellChosen = false
+        speedMove = 0
         stepIndex += 1
-        score += 1
         if stepIndex >= steps.count {
             completed = true
         }
         return true
+    }
+
+    /// Credit a free-mode frame toward the Z or X step.
+    /// Key-down with no movement does not count. The clock resets when the move or the modifier stops.
+    @discardableResult
+    public mutating func observeSpeed(faster: Bool, slower: Bool, moved: Bool, dt: TimeInterval) -> Bool {
+        guard !completed, let step = current else { return false }
+        let active: Bool
+        switch step.required {
+        case .heldFaster: active = faster && moved
+        case .heldSlower: active = slower && moved
+        default:
+            speedMove = 0
+            return false
+        }
+        guard active else {
+            speedMove = 0
+            return false
+        }
+        let before = speedMove
+        speedMove += dt
+        guard before < Self.speedDemoSeconds, speedMove >= Self.speedDemoSeconds else { return false }
+        return handle(step.required)
     }
 }

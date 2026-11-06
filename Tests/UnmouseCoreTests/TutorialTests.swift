@@ -35,6 +35,23 @@ struct TutorialTests {
         #expect(ok && progress.stepIndex == 2)
     }
 
+    @Test func scrollStepNeedsEveryDirection() {
+        var progress = TutorialProgress(session: .freeOnly, stepIndex: 6)
+        #expect(progress.current?.required == .scrolledAll)
+        var ok = progress.handle(.scrolled(.left))
+        #expect(!ok && progress.stepIndex == 6)
+        ok = progress.handle(.scrolled(.left))
+        #expect(!ok)
+        ok = progress.handle(.scrolled(.down))
+        #expect(!ok)
+        ok = progress.handle(.scrolled(.up))
+        #expect(!ok)
+        ok = progress.handle(.hitLeftTarget)
+        #expect(!ok && progress.stepIndex == 6)
+        ok = progress.handle(.scrolled(.right))
+        #expect(ok && progress.stepIndex == 7)
+    }
+
     @Test func aimThenActKeepsOptionOnTheCellScreen() {
         var progress = TutorialProgress(session: .aimThenAct)
         var ok = progress.handle(.enteredGrid)
@@ -55,16 +72,49 @@ struct TutorialTests {
         }
     }
 
+    @Test func speedStepsAdvanceOnlyAfterASecondOfMovement() {
+        var progress = TutorialProgress(session: .freeOnly)
+        var ok = progress.handle(.enteredFree)
+        #expect(ok)
+        for direction in MoveDirection.allCases {
+            _ = progress.handle(.steered(direction))
+        }
+        #expect(progress.stepIndex == 2 && progress.current?.required == .heldFaster)
+
+        ok = progress.observeSpeed(faster: true, slower: false, moved: false, dt: 1)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: false, slower: false, moved: true, dt: 1)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.5)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: true, slower: false, moved: false, dt: 1)
+        #expect(!ok && progress.stepIndex == 2)
+        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.5)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.5)
+        #expect(ok && progress.stepIndex == 3 && progress.current?.required == .heldSlower)
+
+        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 2)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: false, slower: true, moved: true, dt: 0.5)
+        #expect(!ok)
+        ok = progress.observeSpeed(faster: false, slower: true, moved: true, dt: 0.5)
+        #expect(ok && progress.current?.required == .hitLeftTarget)
+    }
+
     @Test func skipCompletes() {
         var progress = TutorialProgress(session: .hintMode)
         let ok = progress.handle(.skipped)
         #expect(ok && progress.completed)
     }
 
-    @Test func keyDeduper() {
-        let deduper = KeyDeduper(windowMillis: 50)
-        #expect(deduper.shouldHandle(token: "h", down: true, nowNanos: 1_000))
-        #expect(!deduper.shouldHandle(token: "h", down: true, nowNanos: 2_000))
-        #expect(deduper.shouldHandle(token: "h", down: true, nowNanos: 100_000_000))
+    @Test func movedOnSteerStepLeavesProgressEqual() {
+        var progress = TutorialProgress(session: .freeOnly)
+        _ = progress.handle(.enteredFree)
+        #expect(progress.stepIndex == 1)
+        let before = progress
+        let advanced = progress.handle(.moved)
+        #expect(!advanced)
+        #expect(progress == before)
     }
 }

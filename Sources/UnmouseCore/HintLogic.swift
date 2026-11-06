@@ -139,11 +139,11 @@ public enum HintLayout {
         }
     }
 
-    public static func crossingCount(_ bubbles: [HintBubble]) -> Int {
+    static func crossingCount(_ bubbles: [HintBubble]) -> Int {
         BoundaryLabeler.crossingCount(bubbles.map(asPlaced))
     }
 
-    public static func crossingPairs(_ bubbles: [HintBubble]) -> [(String, String)] {
+    static func crossingPairs(_ bubbles: [HintBubble]) -> [(String, String)] {
         BoundaryLabeler.crossingPairs(bubbles.map(asPlaced))
     }
 
@@ -224,7 +224,7 @@ public protocol HintSource: Sendable {
     func collect() async -> [HintTarget]
 }
 
-public struct VisionHintSource: HintSource {
-    public init() {}
-    public func collect() async -> [HintTarget] { [] }
+struct VisionHintSource: HintSource {
+    init() {}
+    func collect() async -> [HintTarget] { [] }
 }

@@ -7,15 +7,15 @@ struct TutorialArenaView: View {
     @State private var puckOffset: CGSize = .zero
 
     private var focus: TutorialArenaFocus {
-        model.tutorial?.arenaFocus ?? .none
+        model.tutorial.progress?.arenaFocus ?? .none
     }
 
     private var prompt: String {
-        model.tutorial?.current?.prompt ?? "Session clear — next up."
+        model.tutorial.progress?.current?.prompt ?? "Session clear — next up."
     }
 
     private var sessionTitle: String {
-        model.tutorial?.session.title ?? "Tutorial"
+        model.tutorial.progress?.session.title ?? "Tutorial"
     }
 
     var body: some View {
@@ -27,10 +27,10 @@ struct TutorialArenaView: View {
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .frame(minWidth: 480, minHeight: 360)
-        .onChange(of: model.tutorial?.stepIndex) { _, _ in
+        .onChange(of: model.tutorial.progress?.stepIndex) { _, _ in
             puckOffset = .zero
         }
-        .onChange(of: model.tutorial?.session) { _, _ in
+        .onChange(of: model.tutorial.progress?.session) { _, _ in
             puckOffset = .zero
         }
     }
@@ -42,7 +42,7 @@ struct TutorialArenaView: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
                 Spacer()
-                if let t = model.tutorial, !t.steps.isEmpty {
+                if let t = model.tutorial.progress, !t.steps.isEmpty {
                     Text("\(min(t.stepIndex + 1, t.steps.count)) / \(t.steps.count)")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.tertiary)
@@ -52,7 +52,7 @@ struct TutorialArenaView: View {
                 .font(.title3)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let detail = model.tutorial?.current?.detail {
+            if let detail = model.tutorial.progress?.current?.detail {
                 Text(detail)
                     .font(.body)
                     .foregroundStyle(.secondary)
@@ -165,7 +165,7 @@ struct TutorialArenaView: View {
     }
 
     private var scrollPlane: some View {
-        TwoAxisScrollPad(onScroll: { hit(.hitScroll) })
+        TwoAxisScrollPad()
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -199,24 +199,13 @@ struct TutorialArenaView: View {
 
 /// Both scroll axes. A SwiftUI ScrollView is one axis, and a horizontal one turns vertical scroll into a sideways slide.
 private struct TwoAxisScrollPad: NSViewRepresentable {
-    var onScroll: () -> Void
+    func makeNSView(context: Context) -> PadView { PadView() }
 
-    func makeNSView(context: Context) -> PadView {
-        let view = PadView()
-        view.onScroll = onScroll
-        return view
-    }
-
-    func updateNSView(_ nsView: PadView, context: Context) {
-        nsView.onScroll = onScroll
-    }
+    func updateNSView(_ nsView: PadView, context: Context) {}
 
     final class PadView: NSView {
-        var onScroll: (() -> Void)?
         /// Inset from the top-left of the grid so left, right, up, and down all have room.
         private var origin = CGPoint(x: 120, y: 80)
-        private let start = CGPoint(x: 120, y: 80)
-        private var fired = false
 
         override var isFlipped: Bool { true }
 
@@ -224,11 +213,6 @@ private struct TwoAxisScrollPad: NSViewRepresentable {
             origin.x = min(480, max(0, origin.x - event.scrollingDeltaX))
             origin.y = min(280, max(0, origin.y - event.scrollingDeltaY))
             needsDisplay = true
-            guard !fired else { return }
-            if hypot(origin.x - start.x, origin.y - start.y) > 24 {
-                fired = true
-                onScroll?()
-            }
         }
 
         override func draw(_ dirtyRect: NSRect) {
@@ -299,50 +283,43 @@ private struct RightClickCatcher: NSViewRepresentable {
 @MainActor
 final class TutorialArenaController {
     static let shared = TutorialArenaController()
-    private var window: NSWindow?
+    private let host = HostingWindowController<TutorialArenaView>(
+        title: "Unmouse Practice",
+        contentSize: NSSize(width: 520, height: 380),
+        styleMask: [.titled, .closable, .resizable],
+        activate: false,
+        place: { window in
+            window.level = .floating
+            let mouse = NSEvent.mouseLocation
+            let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+                ?? NSScreen.main
+                ?? NSScreen.screens[0]
+            let size = window.frame.size
+            let visible = screen.visibleFrame
+            let x = visible.midX - size.width / 2
+            let y = visible.midY - size.height / 2 - 20
+            window.setFrame(
+                NSRect(
+                    x: max(visible.minX + 12, min(x, visible.maxX - size.width - 12)),
+                    y: max(visible.minY + 12, min(y, visible.maxY - size.height - 12)),
+                    width: size.width,
+                    height: size.height
+                ),
+                display: true
+            )
+        }
+    )
 
     func show(model: AppModel) {
-        if window == nil {
-            let hosting = NSHostingController(rootView: TutorialArenaView(model: model))
-            let window = NSWindow(contentViewController: hosting)
-            window.title = "Unmouse Practice"
-            window.styleMask = [.titled, .closable, .resizable]
-            window.setContentSize(NSSize(width: 520, height: 380))
-            window.isReleasedWhenClosed = false
-            window.level = .floating
-            self.window = window
-        }
-        placeNearVisibleCenter()
-        window?.level = .floating
-        window?.makeKeyAndOrderFront(nil)
+        host.show(rootView: TutorialArenaView(model: model))
+        host.nsWindow?.level = .floating
         model.overlayController?.updateCoach()
     }
 
     func close() {
-        window?.orderOut(nil)
+        host.close()
     }
 
-    var frame: NSRect? { window?.frame }
-    var isVisible: Bool { window?.isVisible == true }
-
-    private func placeNearVisibleCenter() {
-        guard let window else { return }
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
-            ?? NSScreen.main
-            ?? NSScreen.screens[0]
-        let size = window.frame.size
-        let visible = screen.visibleFrame
-        let x = visible.midX - size.width / 2
-        let y = visible.midY - size.height / 2 - 20
-        window.setFrame(
-            NSRect(
-                x: max(visible.minX + 12, min(x, visible.maxX - size.width - 12)),
-                y: max(visible.minY + 12, min(y, visible.maxY - size.height - 12)),
-                width: size.width,
-                height: size.height
-            ),
-            display: true
-        )
-    }
+    var frame: NSRect? { host.frame }
+    var isVisible: Bool { host.isVisible }
 }

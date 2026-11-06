@@ -1,12 +1,13 @@
 import AppKit
+import Observation
 import SwiftUI
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var model: AppModel!
     private var statusItem: NSStatusItem?
-    private var coachTimer: Timer?
     private let statusTag = 1
+    private var walkthroughObserver: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         model = AppModel()
@@ -30,12 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = makeMenu()
         statusItem = item
 
-        coachTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.syncWindows()
-            }
-        }
-
+        observeWalkthrough()
         syncWindows()
     }
 
@@ -48,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         name.isEnabled = false
         menu.addItem(name)
 
-        let status = NSMenuItem(title: model.mode.rawValue.capitalized, action: nil, keyEquivalent: "")
+        let status = NSMenuItem(title: model.nav.mode.rawValue.capitalized, action: nil, keyEquivalent: "")
         status.tag = statusTag
         status.isEnabled = false
         menu.addItem(status)
@@ -66,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        menu.item(withTag: statusTag)?.title = model.mode.rawValue.capitalized
+        menu.item(withTag: statusTag)?.title = model.nav.mode.rawValue.capitalized
     }
 
     @objc private func openSettings(_ sender: Any?) {
@@ -75,6 +71,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func quit(_ sender: Any?) {
         NSApp.terminate(nil)
+    }
+
+    private func observeWalkthrough() {
+        walkthroughObserver?.cancel()
+        walkthroughObserver = Task { @MainActor [weak self] in
+            guard let self else { return }
+            withObservationTracking {
+                _ = self.model.showWalkthrough
+            } onChange: { [weak self] in
+                Task { @MainActor in
+                    self?.syncWindows()
+                    self?.observeWalkthrough()
+                }
+            }
+        }
     }
 
     private func syncWindows() {

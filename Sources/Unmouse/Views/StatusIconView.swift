@@ -12,21 +12,21 @@ struct StatusIconView: View {
 
     var body: some View {
         Canvas { context, size in
-            let color = Color.primary.opacity(model.mode == .idle ? 1.0 : (pulse ? 1.0 : 0.7))
+            let color = Color.primary.opacity(model.nav.mode == .idle ? 1.0 : (pulse ? 1.0 : 0.7))
             let rect = CGRect(origin: .zero, size: size).insetBy(dx: 3, dy: 3)
-            switch model.mode {
+            switch model.nav.mode {
             case .idle:
                 drawMouse(context: context, in: rect, color: color)
             case .grid:
                 drawGrid(context: context, in: rect, color: color)
             case .free:
-                drawCrosshair(context: context, in: rect, color: color, dragging: model.dragging)
+                drawCrosshair(context: context, in: rect, color: color, dragging: model.nav.dragging)
             case .hint:
                 drawBubble(context: context, in: rect, color: color)
             }
         }
         .frame(width: 18, height: 18)
-        .onChange(of: model.mode) { _, mode in
+        .onChange(of: model.nav.mode) { _, mode in
             pulse = false
             guard mode != .idle else { return }
             withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {

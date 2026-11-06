@@ -12,8 +12,8 @@ struct HintOverlayView: View {
             let line = Color(hex: model.config.colors.hintLine) ?? .white.opacity(0.8)
             let screen = NSScreen.main?.frame ?? .zero
 
-            for bubble in model.hintBubbles {
-                guard model.hintState.visibleTargets.contains(where: { $0.id == bubble.id }) else { continue }
+            for bubble in model.nav.hintBubbles {
+                guard model.nav.hintState.visibleTargets.contains(where: { $0.id == bubble.id }) else { continue }
                 // AppKit screen → panel-local (SwiftUI y is top-down).
                 let localBubble = Self.toLocal(bubble.bubbleFrame, screen: screen)
                 if bubble.needsLeader, bubble.leaderPath.count >= 2 {
@@ -27,7 +27,7 @@ struct HintOverlayView: View {
                 }
                 let rounded = Path(roundedRect: localBubble, cornerRadius: 6)
                 context.fill(rounded, with: .color(fill))
-                if model.hintState.armedID == bubble.id {
+                if model.nav.hintState.armedID == bubble.id {
                     context.stroke(rounded, with: .color(line), lineWidth: 2)
                 }
                 context.draw(

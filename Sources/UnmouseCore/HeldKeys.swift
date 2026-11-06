@@ -1,48 +1,70 @@
 import Foundation
 import Synchronization
 
-public struct KeySnapshot: Sendable, Equatable {
-    public var held: Set<String>
-    public var dragging: Bool
+struct KeySnapshot: Sendable, Equatable {
+    var held: Set<String>
+    var dragging: Bool
 
-    public init(held: Set<String> = [], dragging: Bool = false) {
+    init(held: Set<String> = [], dragging: Bool = false) {
         self.held = held
         self.dragging = dragging
     }
 }
 
 /// Shared between the event-tap callback and the main actor.
+/// Applies key changes in event-time order so a late Karabiner down cannot
+/// resurrect a key that the tap already released.
 public final class HeldKeyStore: @unchecked Sendable {
-    private let mutex: Mutex<KeySnapshot>
-
-    public init() {
-        mutex = Mutex(KeySnapshot())
+    private struct State {
+        var snap = KeySnapshot()
+        /// Last applied event time per token. Older events are ignored.
+        var lastNanos: [String: UInt64] = [:]
     }
 
-    public func setHeld(_ token: String, down: Bool) {
-        mutex.withLock { snap in
-            if down {
-                snap.held.insert(token)
-            } else {
-                snap.held.remove(token)
+    private let mutex: Mutex<State>
+
+    public init() {
+        mutex = Mutex(State())
+    }
+
+    /// Returns false when the event is older than the last applied stamp for this token.
+    @discardableResult
+    public func setHeld(_ token: String, down: Bool, at nanos: UInt64 = DispatchTime.now().uptimeNanoseconds) -> Bool {
+        mutex.withLock { state in
+            if let last = state.lastNanos[token], nanos < last {
+                return false
             }
+            state.lastNanos[token] = nanos
+            if down {
+                state.snap.held.insert(token)
+            } else {
+                state.snap.held.remove(token)
+            }
+            return true
         }
     }
 
+    public func heldTokens() -> [String] {
+        mutex.withLock { $0.snap.held.sorted() }
+    }
+
     public func isHeld(_ token: String) -> Bool {
-        mutex.withLock { $0.held.contains(token) }
+        mutex.withLock { $0.snap.held.contains(token) }
     }
 
     public func setDragging(_ value: Bool) {
-        mutex.withLock { $0.dragging = value }
+        mutex.withLock { $0.snap.dragging = value }
     }
 
-    public func snapshot() -> KeySnapshot {
-        mutex.withLock { $0 }
+    func snapshot() -> KeySnapshot {
+        mutex.withLock { $0.snap }
     }
 
     public func clearHeld() {
-        mutex.withLock { $0.held.removeAll() }
+        mutex.withLock { state in
+            state.snap.held.removeAll()
+            state.lastNanos.removeAll()
+        }
     }
 }
 

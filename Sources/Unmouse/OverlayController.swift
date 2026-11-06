@@ -141,17 +141,31 @@ final class OverlayController {
     }
 
     func showHints() {
-        hideHints()
         guard let model else { return }
         let screen = NSScreen.main ?? NSScreen.screens[0]
+        if let panel = hintPanel {
+            panel.setFrame(screen.frame, display: true)
+            if panel.contentView == nil {
+                panel.contentView = NSHostingView(rootView: HintOverlayView(model: model))
+            }
+            if !panel.isVisible {
+                panel.orderFrontRegardless()
+            }
+            return
+        }
         let panel = makeOverlayPanel(frame: screen.frame)
         panel.contentView = NSHostingView(rootView: HintOverlayView(model: model))
         panel.orderFrontRegardless()
         hintPanel = panel
     }
 
+    /// HintOverlayView observes model.nav — keep the panel and let SwiftUI redraw.
     func refreshHints() {
-        showHints()
+        guard hintPanel != nil else {
+            showHints()
+            return
+        }
+        // No panel rebuild: @Observable HintState / hintBubbles already drive the canvas.
     }
 
     func hideHints() {
@@ -164,7 +178,7 @@ final class OverlayController {
 
         // Tutorial lives on the practice window — don't park a second coach in the corner.
         // Coach only appears while a mode is active (shows what you can do next).
-        let show = model.coachEnabled && model.tutorial == nil && model.mode != .idle
+        let show = model.coachEnabled && model.tutorial.progress == nil && model.mode != .idle
         if show {
             if coachPanel == nil {
                 let screen = NSScreen.main ?? NSScreen.screens[0]
@@ -224,28 +238,6 @@ final class OverlayController {
             panel.setFrame(frame, display: true)
         }
         return panel
-    }
-
-    /// Host SwiftUI inside a sticky blend wrapper so content rebuilds don't drop exclusion.
-    private func installHosting<Content: View>(_ root: Content, in panel: NSPanel) {
-        let hosting = NSHostingView(rootView: root)
-        hosting.wantsLayer = true
-        hosting.layer?.isOpaque = false
-        hosting.layer?.backgroundColor = NSColor.clear.cgColor
-        hosting.autoresizingMask = [.width, .height]
-
-        let wrapper: BlendHostView
-        if let existing = blendHost(in: panel) {
-            wrapper = existing
-        } else {
-            let created = BlendHostView(frame: panel.contentRect(forFrameRect: panel.frame))
-            created.autoresizingMask = [.width, .height]
-            panel.contentView = created
-            wrapper = created
-        }
-        wrapper.subviews.forEach { $0.removeFromSuperview() }
-        hosting.frame = wrapper.bounds
-        wrapper.addSubview(hosting)
     }
 
     private func blendHost(in panel: NSPanel) -> BlendHostView? {

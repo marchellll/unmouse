@@ -41,6 +41,12 @@ enum PointerController {
         )
     }
 
+    /// AppKit screen point (origin bottom-left) → CGEvent global.
+    static func move(toAppKit point: CGPoint) {
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        move(to: CoordinateSpace.appKitToCGEvent(point, primaryHeight: primaryH))
+    }
+
     static func moveBy(dx: CGFloat, dy: CGFloat, dragging: Bool = false) {
         pendingX += Double(dx)
         pendingY += Double(dy)
@@ -165,13 +171,6 @@ extension CGPoint {
 
     func appKit(primaryHeight: CGFloat) -> CGPoint {
         CoordinateSpace.cgEventToAppKit(self, primaryHeight: primaryHeight)
-    }
-}
-
-extension NSEvent {
-    var cgGlobalLocation: CGPoint {
-        let h = NSScreen.screens.first?.frame.height ?? 0
-        return locationInWindow.appKitToCG(primary: h) // mouseLocation is AppKit already at screen
     }
 }
 

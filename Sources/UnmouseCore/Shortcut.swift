@@ -175,7 +175,7 @@ extension KeyKind {
 }
 
 extension Shortcut {
-    public var configString: String {
+    var configString: String {
         if modifiers.isEmpty {
             return key.configToken
         }

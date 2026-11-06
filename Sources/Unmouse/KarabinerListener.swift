@@ -5,7 +5,8 @@ import UnmouseCore
 /// Read-only listener for Karabiner's virtual keyboard. Never seizes the device.
 final class KarabinerListener {
     private var manager: IOHIDManager?
-    var onKey: ((KeyKind, Bool) -> Void)?
+    /// kind, down, eventNanos (mach absolute)
+    var onKey: ((KeyKind, Bool, UInt64) -> Void)?
     private(set) var isActive = false
     var isRunning: Bool { manager != nil }
 
@@ -32,10 +33,11 @@ final class KarabinerListener {
             this.isActive = false
         }, ctx)
 
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        // commonModes so callbacks keep arriving during menu tracking (same as the event tap).
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         let open = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         guard open == kIOReturnSuccess else {
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
             return false
         }
@@ -52,7 +54,7 @@ final class KarabinerListener {
 
     func stop() {
         if let manager {
-            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+            IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         manager = nil
@@ -80,8 +82,19 @@ final class KarabinerListener {
             // Modifiers are owned by the CGEvent tap (alone-tap detection).
             // Emitting them here races the tap and drops ⌘/⌥ taps intermittently.
             if kind.isModifier { return }
-            onKey?(kind, pressed)
+            onKey?(kind, pressed, Self.hidNanos(value))
         }
+    }
+
+    private static var timebase: mach_timebase_info_data_t = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return info
+    }()
+
+    private static func hidNanos(_ value: IOHIDValue) -> UInt64 {
+        let ticks = IOHIDValueGetTimeStamp(value)
+        return ticks * UInt64(timebase.numer) / UInt64(timebase.denom)
     }
 }
 

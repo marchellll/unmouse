@@ -13,23 +13,6 @@ public enum CoordinateSpace {
         CGPoint(x: point.x, y: primaryHeight - point.y)
     }
 
-    /// Center of a cell in screen-local AppKit coordinates (origin bottom-left of that screen).
-    public static func cellCenter(
-        screenOrigin: CGPoint,
-        screenSize: CGSize,
-        rows: Int,
-        cols: Int,
-        row: Int,
-        col: Int
-    ) -> CGPoint {
-        let cellW = screenSize.width / CGFloat(cols)
-        let cellH = screenSize.height / CGFloat(rows)
-        // row 0 is top of screen in grid labels
-        let x = screenOrigin.x + (CGFloat(col) + 0.5) * cellW
-        let y = screenOrigin.y + screenSize.height - (CGFloat(row) + 0.5) * cellH
-        return CGPoint(x: x, y: y)
-    }
-
     public static func cellFrame(
         screenOrigin: CGPoint,
         screenSize: CGSize,
