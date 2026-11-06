@@ -43,6 +43,8 @@ final class AppModel {
     private var moveHeld: TimeInterval = 0
     /// How long the current scroll hold has lasted. Same curve as pointer movement.
     private var scrollHeld: TimeInterval = 0
+    /// Keys that went down as Command, Option, or Control chords. Their key-up must pass through.
+    private var chordKeys: Set<String> = []
     private var saveWorkItem: DispatchWorkItem?
     private var suppressConfigReload = false
     /// Currently applied preset name (for Settings picker).
@@ -92,8 +94,8 @@ final class AppModel {
             showWalkthrough = true
         } else if !UserDefaults.standard.bool(forKey: "didCompleteWalkthrough") {
             showWalkthrough = true
-        } else if !completedSessions().contains(.aimAndHit) {
-            startTutorial(.aimAndHit)
+        } else if !completedSessions().contains(.freeOnly) {
+            startTutorial(.freeOnly)
         }
     }
 
@@ -158,7 +160,7 @@ final class AppModel {
     func finishWalkthrough() {
         UserDefaults.standard.set(true, forKey: "didCompleteWalkthrough")
         showWalkthrough = false
-        startTutorial(.aimAndHit)
+        startTutorial(.freeOnly)
     }
 
     func skipWalkthrough() {
@@ -355,6 +357,9 @@ final class AppModel {
             guard let self else { return }
             _ = self.handleKey(kind: kind, flags: self.lastFlags, down: down, alone: false, source: .karabiner)
         }
+        eventTap.onMouseDown = { [weak self] in
+            self?.endFreeModeIfNeeded()
+        }
     }
 
     private enum InputSource { case tap, karabiner }
@@ -379,6 +384,9 @@ final class AppModel {
         }
 
         let token = KeyCodes.token(for: kind)
+        if passFreeChord(token: token, flags: flags, down: down) {
+            return false
+        }
         // Mirror every event into held set before dedupe. Swallowing CGEvents makes
         // CGEventSource.keyState unreliable, so our set is the source of truth.
         // Karabiner key-ups in free mode are ignored: its virtual keyboard drops Z/X
@@ -464,15 +472,34 @@ final class AppModel {
         return false
     }
 
+    /// A move key that is already up. Held state survives a swallowed key-up and the tick keeps going.
+    private func releaseStaleMoveHolds() {
+        let sets = [
+            config.bindings.free.moveLeft,
+            config.bindings.free.moveRight,
+            config.bindings.free.moveUp,
+            config.bindings.free.moveDown,
+            config.bindings.free.scrollLeft,
+            config.bindings.free.scrollRight,
+            config.bindings.free.scrollUp,
+            config.bindings.free.scrollDown,
+        ]
+        for raw in sets {
+            for shortcut in (try? ShortcutParser.parseAll(raw)) ?? [] {
+                let token = KeyCodes.token(for: shortcut.key)
+                guard heldKeys.isHeld(token), !hidDown(shortcut.key) else { continue }
+                heldKeys.setHeld(token, down: false)
+            }
+        }
+    }
+
     private func bindingHeld(_ raw: [String]) -> Bool {
         for shortcut in (try? ShortcutParser.parseAll(raw)) ?? [] {
             if heldKeys.isHeld(KeyCodes.token(for: shortcut.key)) { return true }
-            // HID fallback when the tap missed a down during an arrow chord.
-            if let code = KeyCodes.keyCode(for: shortcut.key),
-               CGEventSource.keyState(.combinedSessionState, key: code)
-            {
-                return true
-            }
+            // Swallowed keys stick in combinedSessionState, so the tick keeps moving after a release.
+            // Hardware state does not. Skip it during a chord so cmd+j is not a move.
+            if liveChordModifierDown() { continue }
+            if hidDown(shortcut.key) { return true }
         }
         return false
     }
@@ -573,6 +600,9 @@ final class AppModel {
     func enterFree(fromGrid: Bool) {
         moveHeld = 0
         scrollHeld = 0
+        scrollFracX = 0
+        scrollFracY = 0
+        releaseStaleMoveHolds()
         mode = .free
         hintState = HintState()
         hintBubbles = []
@@ -631,6 +661,7 @@ final class AppModel {
         scrollFracY = 0
         moveHeld = 0
         scrollHeld = 0
+        chordKeys.removeAll()
     }
 
     private func bumpModeActivity() {
@@ -850,23 +881,39 @@ final class AppModel {
             } else {
                 performLeftClick()
             }
+            endFreeModeIfNeeded()
             return true
         }
         if BindingMatcher(b.rightClick).matches(key: kind, flags: flags, alone: false) {
             PointerController.click(.right)
             note(.rightClick)
+            endFreeModeIfNeeded()
             return true
         }
         if BindingMatcher(b.middleClick).matches(key: kind, flags: flags, alone: false) {
             PointerController.click(.middle)
+            endFreeModeIfNeeded()
             return true
         }
         // movement / scroll / speed are held — handled by display link
-        if BindingMatcher(b.moveLeft).matches(key: kind, flags: flags, alone: false)
-            || BindingMatcher(b.moveRight).matches(key: kind, flags: flags, alone: false)
-            || BindingMatcher(b.moveUp).matches(key: kind, flags: flags, alone: false)
-            || BindingMatcher(b.moveDown).matches(key: kind, flags: flags, alone: false)
-        {
+        var steered = false
+        if BindingMatcher(b.moveLeft).matches(key: kind, flags: flags, alone: false) {
+            note(.steered(.left))
+            steered = true
+        }
+        if BindingMatcher(b.moveRight).matches(key: kind, flags: flags, alone: false) {
+            note(.steered(.right))
+            steered = true
+        }
+        if BindingMatcher(b.moveUp).matches(key: kind, flags: flags, alone: false) {
+            note(.steered(.up))
+            steered = true
+        }
+        if BindingMatcher(b.moveDown).matches(key: kind, flags: flags, alone: false) {
+            note(.steered(.down))
+            steered = true
+        }
+        if steered {
             note(.moved)
             return true
         }
@@ -886,7 +933,43 @@ final class AppModel {
             note(.heldSlower)
             return true
         }
+        if kind.isModifier { return false }
+        // Any other key is an action. Swallow it unless leaving, so the key still reaches the app.
+        if config.free.exitOnAction {
+            endFreeModeIfNeeded()
+            return false
+        }
         return true
+    }
+
+    /// Command, Option, or Control plus a key that is not already a free-mode hold.
+    /// Shift alone stays inside free mode. The chord itself is never swallowed.
+    private func passFreeChord(token: String, flags: CGEventFlags, down: Bool) -> Bool {
+        if !down {
+            guard chordKeys.contains(token) else { return false }
+            chordKeys.remove(token)
+            return true
+        }
+        guard mode == .free, !heldKeys.isHeld(token), chordModifierDown(flags) else { return false }
+        chordKeys.insert(token)
+        endFreeModeIfNeeded()
+        return true
+    }
+
+    private func endFreeModeIfNeeded() {
+        guard mode == .free, config.free.exitOnAction else { return }
+        exitToIdle()
+        note(.cancelled)
+    }
+
+    private func chordModifierDown(_ flags: CGEventFlags) -> Bool {
+        let live = CGEventSource.flagsState(.hidSystemState)
+        let merged = CGEventFlags(rawValue: flags.rawValue | live.rawValue)
+        return merged.contains(.maskCommand) || merged.contains(.maskAlternate) || merged.contains(.maskControl)
+    }
+
+    private func liveChordModifierDown() -> Bool {
+        chordModifierDown([])
     }
 
     private func handleHintKey(kind: KeyKind, flags: CGEventFlags) -> Bool {
@@ -1061,11 +1144,12 @@ final class AppModel {
             )
         }
         var speedMult = 1.0
-        if speedLatch.faster || hidDown(b.faster) || bindingHeld(b.faster) {
+        let chordDown = liveChordModifierDown()
+        if speedLatch.faster || (!chordDown && hidDown(b.faster)) || bindingHeld(b.faster) {
             speedMult *= config.free.fastMultiplier
             note(.heldFaster)
         }
-        if speedLatch.slower || hidDown(b.slower) || bindingHeld(b.slower) {
+        if speedLatch.slower || (!chordDown && hidDown(b.slower)) || bindingHeld(b.slower) {
             speedMult *= config.free.slowMultiplier
             note(.heldSlower)
         }
@@ -1130,6 +1214,7 @@ final class AppModel {
     // MARK: Tutorial
 
     func startTutorial(_ session: TutorialSessionID) {
+        releaseStaleMoveHolds()
         tutorial = TutorialProgress(session: session)
         // Practice window owns the tutorial UI; don't also open the corner coach.
         coachEnabled = false

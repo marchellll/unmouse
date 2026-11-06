@@ -33,6 +33,7 @@ slow_multiplier = 0.25
 scroll_speed = 200.0  # top scroll lines per second; ramps on that curve
 scroll_reverse_x = false  # flip left/right
 scroll_reverse_y = false  # flip up/down
+exit_on_action = false  # chord, click, or other key leaves free mode
 halo_attention = "pulse"   # none | pulse | ping | breathe
 halo_attention_period = 1.4  # seconds
 halo_attention_scale = 3.6

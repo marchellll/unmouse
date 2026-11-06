@@ -7,6 +7,8 @@ final class EventTapController {
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     var onKey: ((KeyKind, CGEventFlags, Bool, Bool) -> Bool)?
+    /// Physical mouse button. Never swallowed.
+    var onMouseDown: (() -> Void)?
     private var alone = AloneTapTracker()
     private var maxTapMs: UInt64 = 200
 
@@ -22,6 +24,9 @@ final class EventTapController {
             (1 << CGEventType.keyDown.rawValue)
             | (1 << CGEventType.keyUp.rawValue)
             | (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.leftMouseDown.rawValue)
+            | (1 << CGEventType.rightMouseDown.rawValue)
+            | (1 << CGEventType.otherMouseDown.rawValue)
 
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
@@ -78,6 +83,9 @@ final class EventTapController {
         let swallow: Bool
 
         switch type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            onMouseDown?()
+            return Unmanaged.passUnretained(event)
         case .keyDown:
             _ = alone.handle(.otherKey)
             guard let kind = KeyCodes.kind(from: keyCode) else {

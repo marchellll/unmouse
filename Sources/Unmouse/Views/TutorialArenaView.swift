@@ -5,7 +5,6 @@ import UnmouseCore
 struct TutorialArenaView: View {
     @Bindable var model: AppModel
     @State private var puckOffset: CGSize = .zero
-    @State private var scrollOffset: CGFloat = 0
 
     private var focus: TutorialArenaFocus {
         model.tutorial?.arenaFocus ?? .none
@@ -30,11 +29,9 @@ struct TutorialArenaView: View {
         .frame(minWidth: 480, minHeight: 360)
         .onChange(of: model.tutorial?.stepIndex) { _, _ in
             puckOffset = .zero
-            scrollOffset = 0
         }
         .onChange(of: model.tutorial?.session) { _, _ in
             puckOffset = .zero
-            scrollOffset = 0
         }
     }
 
@@ -55,6 +52,12 @@ struct TutorialArenaView: View {
                 .font(.title3)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let detail = model.tutorial?.current?.detail {
+                Text(detail)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -74,8 +77,8 @@ struct TutorialArenaView: View {
             case .drag:
                 dragStage
             case .scroll:
-                scrollStrip
-                    .frame(maxWidth: 360, maxHeight: 64)
+                scrollPlane
+                    .frame(width: 360, height: 180)
             case .hintButton:
                 hintButton
             }
@@ -88,9 +91,13 @@ struct TutorialArenaView: View {
         Button(action: { hit(.hitLeftTarget) }) {
             Text("Hit")
                 .font(.headline)
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.green)
                 .frame(width: 96, height: 96)
-                .background(Circle().strokeBorder(.primary, lineWidth: 1.5))
+                .background {
+                    Circle()
+                        .fill(Color.green.opacity(0.18))
+                        .overlay(Circle().strokeBorder(Color.green, lineWidth: 1.5))
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Hit")
@@ -100,12 +107,16 @@ struct TutorialArenaView: View {
         Button(action: {}) {
             Text("Menu")
                 .font(.headline)
-                .foregroundStyle(.primary)
+                .foregroundStyle(Color.orange)
                 .frame(width: 112, height: 72)
-                .background(
+                .background {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(.primary, lineWidth: 1.5)
-                )
+                        .fill(Color.orange.opacity(0.18))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Color.orange, lineWidth: 1.5)
+                        )
+                }
         }
         .buttonStyle(.plain)
         .background { RightClickCatcher { hit(.hitRightTarget) } }
@@ -153,43 +164,14 @@ struct TutorialArenaView: View {
         }
     }
 
-    private var scrollStrip: some View {
-        ScrollView(.horizontal, showsIndicators: true) {
-            HStack(spacing: 8) {
-                ForEach(0..<16, id: \.self) { i in
-                    Text("\(i)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, height: 36)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(.quaternary, lineWidth: 1)
-                        )
-                }
+    private var scrollPlane: some View {
+        TwoAxisScrollPad(onScroll: { hit(.hitScroll) })
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(Color.blue.opacity(0.8), lineWidth: 1)
             }
-            .padding(4)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ScrollOffsetKey.self,
-                        value: geo.frame(in: .named("scroll")).minX
-                    )
-                }
-            )
-        }
-        .coordinateSpace(name: "scroll")
-        .onPreferenceChange(ScrollOffsetKey.self) { x in
-            if abs(x - scrollOffset) > 20 {
-                scrollOffset = x
-                hit(.hitScroll)
-            }
-        }
-        .padding(8)
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(.primary.opacity(0.35), lineWidth: 1)
-        }
-        .accessibilityLabel("Scroll strip")
+            .accessibilityLabel("Scroll pad")
     }
 
     private var hintButton: some View {
@@ -215,10 +197,76 @@ struct TutorialArenaView: View {
     }
 }
 
-private struct ScrollOffsetKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+/// Both scroll axes. A SwiftUI ScrollView is one axis, and a horizontal one turns vertical scroll into a sideways slide.
+private struct TwoAxisScrollPad: NSViewRepresentable {
+    var onScroll: () -> Void
+
+    func makeNSView(context: Context) -> PadView {
+        let view = PadView()
+        view.onScroll = onScroll
+        return view
+    }
+
+    func updateNSView(_ nsView: PadView, context: Context) {
+        nsView.onScroll = onScroll
+    }
+
+    final class PadView: NSView {
+        var onScroll: (() -> Void)?
+        /// Inset from the top-left of the grid so left, right, up, and down all have room.
+        private var origin = CGPoint(x: 120, y: 80)
+        private let start = CGPoint(x: 120, y: 80)
+        private var fired = false
+
+        override var isFlipped: Bool { true }
+
+        override func scrollWheel(with event: NSEvent) {
+            origin.x = min(480, max(0, origin.x - event.scrollingDeltaX))
+            origin.y = min(280, max(0, origin.y - event.scrollingDeltaY))
+            needsDisplay = true
+            guard !fired else { return }
+            if hypot(origin.x - start.x, origin.y - start.y) > 24 {
+                fired = true
+                onScroll?()
+            }
+        }
+
+        override func draw(_ dirtyRect: NSRect) {
+            let cell: CGFloat = 36
+            let gap: CGFloat = 8
+            let step = cell + gap
+            let cols = 16
+            let rows = 10
+            let blue = NSColor.systemBlue.withAlphaComponent(0.85)
+            let fill = NSColor.systemBlue.withAlphaComponent(0.16)
+            let labelAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]
+            for row in 0..<rows {
+                for col in 0..<cols {
+                    let rect = NSRect(
+                        x: CGFloat(col) * step - origin.x,
+                        y: CGFloat(row) * step - origin.y,
+                        width: cell,
+                        height: cell
+                    )
+                    guard bounds.intersects(rect) else { continue }
+                    fill.setFill()
+                    blue.setStroke()
+                    let path = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+                    path.lineWidth = 1
+                    path.fill()
+                    path.stroke()
+                    let title = "\(col)" as NSString
+                    let size = title.size(withAttributes: labelAttrs)
+                    title.draw(
+                        at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2),
+                        withAttributes: labelAttrs
+                    )
+                }
+            }
+        }
     }
 }
 

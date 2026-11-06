@@ -3,41 +3,69 @@ import CoreGraphics
 import UnmouseCore
 
 enum PointerController {
-    private static let source = CGEventSource(stateID: .combinedSessionState)
+    /// Private source so a swallowed key or a previous delta is not inherited.
+    /// Quartz fills delta Y from the position change and leaves delta X at 0, which drops left/right.
+    private static let source: CGEventSource = {
+        let source = CGEventSource(stateID: .privateState) ?? CGEventSource(stateID: .hidSystemState)!
+        source.localEventsSuppressionInterval = 0
+        return source
+    }()
+
+    /// Sub-pixel remainder. A frame under 1px must not vanish, and must not stick as a later delta.
+    private static var pendingX: Double = 0
+    private static var pendingY: Double = 0
 
     static var location: CGPoint {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         return CoordinateSpace.appKitToCGEvent(NSEvent.mouseLocation, primaryHeight: primaryH)
     }
 
-    /// Clears "hidden until mouse moves" without warping. Absolute position stays put; the delta is what the window server notices.
+    /// Clears "hidden until mouse moves" without warping. A lone +1 delta walks the pointer, so the nudge is paired.
     static func showCursor() {
-        let point = location
-        guard let event = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) else { return }
-        event.setIntegerValueField(.mouseEventDeltaX, value: 1)
-        event.setIntegerValueField(.mouseEventDeltaY, value: 0)
-        send(event)
+        var p = location
+        p.x += 1
+        postMove(to: p, dx: 1, dy: 0, dragging: false)
+        p.x -= 1
+        postMove(to: p, dx: -1, dy: 0, dragging: false)
     }
 
     static func move(to point: CGPoint) {
-        send(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
+        pendingX = 0
+        pendingY = 0
+        let here = location
+        postMove(
+            to: point,
+            dx: Int64((point.x - here.x).rounded()),
+            dy: Int64((point.y - here.y).rounded()),
+            dragging: false
+        )
     }
 
     static func moveBy(dx: CGFloat, dy: CGFloat, dragging: Bool = false) {
+        pendingX += Double(dx)
+        pendingY += Double(dy)
+        let ix = Int64(pendingX.rounded(.towardZero))
+        let iy = Int64(pendingY.rounded(.towardZero))
+        guard ix != 0 || iy != 0 else { return }
+        pendingX -= Double(ix)
+        pendingY -= Double(iy)
         var p = location
-        p.x += dx
-        p.y += dy
-        if dragging {
-            let event = CGEvent(
-                mouseEventSource: source,
-                mouseType: .leftMouseDragged,
-                mouseCursorPosition: p,
-                mouseButton: .left
-            )
-            send(event)
-        } else {
-            move(to: p)
-        }
+        p.x += CGFloat(ix)
+        p.y += CGFloat(iy)
+        postMove(to: p, dx: ix, dy: iy, dragging: dragging)
+    }
+
+    private static func postMove(to point: CGPoint, dx: Int64, dy: Int64, dragging: Bool) {
+        let type: CGEventType = dragging ? .leftMouseDragged : .mouseMoved
+        guard let event = CGEvent(
+            mouseEventSource: source,
+            mouseType: type,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) else { return }
+        event.setIntegerValueField(.mouseEventDeltaX, value: dx)
+        event.setIntegerValueField(.mouseEventDeltaY, value: dy)
+        send(event)
     }
 
     static func click(_ button: MouseButton, count: Int = 1, from: Int = 1) {
@@ -47,9 +75,11 @@ enum PointerController {
         for i in start...max(start, count) {
             let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: p, mouseButton: cgButton)
             down?.setIntegerValueField(.mouseEventClickState, value: Int64(i))
+            stampStill(down)
             send(down)
             let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: p, mouseButton: cgButton)
             up?.setIntegerValueField(.mouseEventClickState, value: Int64(i))
+            stampStill(up)
             send(up)
         }
     }
@@ -57,16 +87,27 @@ enum PointerController {
     static func mouseDown(_ button: MouseButton = .left) {
         let (downType, _, cgButton) = mapping(button)
         let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: location, mouseButton: cgButton)
+        stampStill(down)
         send(down)
     }
 
     static func mouseUp(_ button: MouseButton = .left) {
         let (_, upType, cgButton) = mapping(button)
-        send(CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: location, mouseButton: cgButton))
+        let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: location, mouseButton: cgButton)
+        stampStill(up)
+        send(up)
     }
 
     static func dragMove() {
-        send(CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: location, mouseButton: .left))
+        let event = CGEvent(mouseEventSource: source, mouseType: .leftMouseDragged, mouseCursorPosition: location, mouseButton: .left)
+        stampStill(event)
+        send(event)
+    }
+
+    /// A click or a still drag must not replay the last move delta.
+    private static func stampStill(_ event: CGEvent?) {
+        event?.setIntegerValueField(.mouseEventDeltaX, value: 0)
+        event?.setIntegerValueField(.mouseEventDeltaY, value: 0)
     }
 
     /// Continuous pixel scroll. Line units only move after a whole line, which feels stuck.
@@ -82,11 +123,15 @@ enum PointerController {
             wheel2: ix,
             wheel3: 0
         ) else { return }
+        event.location = location
         event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
         event.setIntegerValueField(.scrollWheelEventPointDeltaAxis1, value: Int64(iy))
         event.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: Int64(ix))
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1, value: Double(iy))
         event.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: Double(ix))
+        // An unplaced scroll event carries a mouse delta and walks the cursor.
+        event.setIntegerValueField(.mouseEventDeltaX, value: 0)
+        event.setIntegerValueField(.mouseEventDeltaY, value: 0)
         send(event)
     }
 

@@ -206,6 +206,8 @@ public struct FreeConfig: Codable, Sendable, Equatable {
     public var scrollReverseX: Bool
     /// When true, scroll up and scroll down trade directions.
     public var scrollReverseY: Bool
+    /// When true, a chord, a click, or any other non-hold key leaves free mode.
+    public var exitOnAction: Bool
     public var haloAttention: HaloAttention
     /// Seconds for one attention cycle.
     public var haloAttentionPeriod: Double
@@ -224,6 +226,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         case scrollSpeed = "scroll_speed"
         case scrollReverseX = "scroll_reverse_x"
         case scrollReverseY = "scroll_reverse_y"
+        case exitOnAction = "exit_on_action"
         case haloAttention = "halo_attention"
         case haloAttentionPeriod = "halo_attention_period"
         case haloAttentionScale = "halo_attention_scale"
@@ -240,6 +243,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         scrollSpeed: Double = 200,
         scrollReverseX: Bool = false,
         scrollReverseY: Bool = false,
+        exitOnAction: Bool = false,
         haloAttention: HaloAttention = .pulse,
         haloAttentionPeriod: Double = 1.4,
         haloAttentionScale: Double = 3.6,
@@ -254,6 +258,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         self.scrollSpeed = scrollSpeed
         self.scrollReverseX = scrollReverseX
         self.scrollReverseY = scrollReverseY
+        self.exitOnAction = exitOnAction
         self.haloAttention = haloAttention
         self.haloAttentionPeriod = haloAttentionPeriod
         self.haloAttentionScale = haloAttentionScale
@@ -268,6 +273,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         scrollSpeed = try Self.decodeNumber(c, forKey: .scrollSpeed)
         scrollReverseX = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseX) ?? false
         scrollReverseY = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseY) ?? false
+        exitOnAction = try c.decodeIfPresent(Bool.self, forKey: .exitOnAction) ?? false
         haloAttention = try c.decodeIfPresent(HaloAttention.self, forKey: .haloAttention) ?? .pulse
         haloAttentionPeriod = (try? Self.decodeNumber(c, forKey: .haloAttentionPeriod)) ?? 1.4
         haloAttentionScale = (try? Self.decodeNumber(c, forKey: .haloAttentionScale)) ?? 3.6

@@ -101,6 +101,18 @@ struct ConfigTests {
         #expect(decoded.free.scrollReverseY)
     }
 
+    @Test func exitOnActionDefaultsOff() throws {
+        let text = try ConfigIO.encode(AppConfig.default)
+            .replacingOccurrences(of: "exit_on_action", with: "ignored_exit")
+        let decoded = try ConfigIO.decode(from: text)
+        #expect(decoded.free.exitOnAction == false)
+
+        var config = AppConfig.default
+        config.free.exitOnAction = true
+        let roundTrip = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(roundTrip.free.exitOnAction)
+    }
+
     @Test func scrollReverseDefaultsOff() throws {
         let text = try ConfigIO.encode(AppConfig.default)
             .replacingOccurrences(of: "scroll_reverse_x", with: "ignored_reverse_x")

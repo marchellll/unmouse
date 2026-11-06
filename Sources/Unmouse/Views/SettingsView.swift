@@ -343,6 +343,12 @@ struct SettingsView: View {
                     Toggle("Y", isOn: freeBool(\.scrollReverseY))
                 }
             }
+            optionHint(
+                "Leave on action",
+                hint: "A Command, Option, or Control chord, a mouse click, or any other key leaves free mode. Off keeps free mode up. Those chords still reach the app either way."
+            ) {
+                Toggle("", isOn: freeBool(\.exitOnAction)).labelsHidden()
+            }
         }
         Section("Halo") {
             optionHint(
