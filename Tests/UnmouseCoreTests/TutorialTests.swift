@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 @testable import UnmouseCore
 
@@ -5,16 +6,19 @@ import Testing
 struct TutorialTests {
     @Test func advancesOnlyOnMatchingEvent() {
         var progress = TutorialProgress(session: .aimAndHit)
+        #expect(progress.steps.count == 2)
+        #expect(progress.current?.gridGuide == .left)
         var ok = progress.handle(.moved)
         #expect(!ok)
         ok = progress.handle(.enteredGrid)
-        #expect(ok && progress.stepIndex == 1)
+        #expect(!ok && progress.stepIndex == 0)
         ok = progress.handle(.typedGridCell)
-        #expect(ok)
+        #expect(!ok && progress.stepIndex == 0)
         ok = progress.handle(.hitLeftTarget)
-        #expect(ok)
-        ok = progress.handle(.typedGridCell)
-        #expect(ok)
+        #expect(ok && progress.stepIndex == 1)
+        #expect(progress.current?.gridGuide == .right)
+        ok = progress.handle(.hitLeftTarget)
+        #expect(!ok)
         ok = progress.handle(.hitRightTarget)
         #expect(ok && progress.completed)
     }
@@ -50,20 +54,94 @@ struct TutorialTests {
         #expect(!ok && progress.stepIndex == 6)
         ok = progress.handle(.scrolled(.right))
         #expect(ok && progress.stepIndex == 7)
+        #expect(progress.current?.required == .zoomedAll)
+    }
+
+    @Test func zoomStepNeedsBothDirections() {
+        var progress = TutorialProgress(session: .freeOnly, stepIndex: 7)
+        #expect(progress.current?.prompt == "Zoom the blue strip — `⌘` + `.` in, `⌘` + `,` out.")
+        #expect(progress.current?.arenaFocus == .scroll)
+        var ok = progress.handle(.zoomed(.in))
+        #expect(!ok && progress.stepIndex == 7)
+        ok = progress.handle(.zoomed(.in))
+        #expect(!ok)
+        ok = progress.handle(.scrolled(.up))
+        #expect(!ok && progress.stepIndex == 7)
+        ok = progress.handle(.zoomed(.out))
+        #expect(ok && progress.stepIndex == 8)
+        #expect(progress.current?.required == .dragStarted)
+    }
+
+    @Test func zoomCreditNeedsARealChangeBothWays() {
+        var credit = ZoomCredit()
+        let start = credit.arm(scale: 1)
+        #expect(start == 1)
+        #expect(credit.credit(scale: 1.2) == nil)
+        #expect(credit.credit(scale: ZoomCredit.ratio) == .in)
+        #expect(credit.credit(scale: ZoomCredit.maxScale) == nil)
+        #expect(credit.credit(scale: 1) == nil)
+        #expect(credit.credit(scale: 1 / ZoomCredit.ratio) == .out)
+        #expect(credit.credit(scale: ZoomCredit.minScale) == nil)
+
+        var pinned = ZoomCredit()
+        let pulled = pinned.arm(scale: ZoomCredit.maxScale)
+        #expect(abs(pulled - ZoomCredit.maxScale / ZoomCredit.ratio) < 0.0001)
+        #expect(pinned.credit(scale: pulled * ZoomCredit.ratio) == .in)
+        #expect(pinned.credit(scale: pulled / ZoomCredit.ratio) == .out)
+
+        var shrunk = ZoomCredit()
+        let raised = shrunk.arm(scale: ZoomCredit.minScale)
+        #expect(abs(raised - ZoomCredit.minScale * ZoomCredit.ratio) < 0.0001)
+        #expect(shrunk.credit(scale: raised / ZoomCredit.ratio) == .out)
+    }
+
+    @Test func previousAndNextMoveOneStep() {
+        var progress = TutorialProgress(session: .freeOnly)
+        #expect(!progress.canMoveBack)
+        #expect(progress.canMoveForward)
+        var ok = progress.move(-1)
+        #expect(!ok && progress.stepIndex == 0)
+
+        ok = progress.move(1)
+        #expect(ok && progress.stepIndex == 1)
+        #expect(progress.current?.required == .steeredAll)
+        ok = progress.handle(.steered(.left))
+        #expect(!ok)
+        ok = progress.move(1)
+        #expect(ok)
+        ok = progress.move(-1)
+        #expect(ok && progress.stepIndex == 1)
+        ok = progress.handle(.steered(.right))
+        #expect(!ok)
+        ok = progress.handle(.steered(.down))
+        #expect(!ok)
+        ok = progress.handle(.steered(.up))
+        #expect(!ok)
+        ok = progress.handle(.steered(.left))
+        #expect(ok && progress.stepIndex == 2)
+
+        let last = progress.steps.count - 1
+        ok = progress.move(last - progress.stepIndex)
+        #expect(ok)
+        #expect(progress.canMoveBack)
+        #expect(!progress.canMoveForward)
+        ok = progress.move(1)
+        #expect(!ok && progress.stepIndex == last)
     }
 
     @Test func aimThenActKeepsOptionOnTheCellScreen() {
         var progress = TutorialProgress(session: .aimThenAct)
         var ok = progress.handle(.enteredGrid)
         #expect(ok && progress.stepIndex == 1)
-        #expect(progress.current?.detail == "Then ⌥ — drop into free mode.")
+        #expect(progress.current?.gridGuide == .toFree)
+        #expect(progress.current?.detail == "Then `⌥` — drop into free mode.")
         ok = progress.handle(.gridToFree)
         #expect(!ok && progress.stepIndex == 1)
         ok = progress.handle(.typedGridCell)
         #expect(!ok && progress.stepIndex == 1)
         ok = progress.handle(.gridToFree)
         #expect(ok && progress.stepIndex == 2)
-        #expect(progress.current?.prompt == "Nudge onto the target with H J K L.")
+        #expect(progress.current?.prompt == "Nudge onto the target with `H` `J` `K` `L`.")
     }
 
     @Test func fourSessionsHaveSteps() {
@@ -90,8 +168,6 @@ struct TutorialTests {
         ok = progress.observeSpeed(faster: true, slower: false, moved: false, dt: 1)
         #expect(!ok && progress.stepIndex == 2)
         ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.5)
-        #expect(!ok)
-        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.5)
         #expect(ok && progress.stepIndex == 3 && progress.current?.required == .heldSlower)
 
         ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 2)
@@ -102,21 +178,60 @@ struct TutorialTests {
         #expect(ok && progress.current?.required == .hitLeftTarget)
     }
 
-    @Test func speedStepKeepsCreditAcrossADroppedFrame() {
+    @Test func speedStepAddsBurstsUntilOneSecond() {
         var progress = TutorialProgress(session: .freeOnly, stepIndex: 2)
         #expect(progress.current?.required == .heldFaster)
-        var ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.6)
-        #expect(!ok && progress.stepIndex == 2)
-        ok = progress.observeSpeed(faster: false, slower: false, moved: false, dt: 0.1)
-        #expect(!ok && progress.stepIndex == 2)
-        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.4)
+        for _ in 0..<3 {
+            let ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.3)
+            #expect(!ok && progress.stepIndex == 2)
+            let paused = progress.observeSpeed(faster: false, slower: false, moved: false, dt: 2)
+            #expect(!paused && progress.stepIndex == 2)
+        }
+        let ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.1)
         #expect(ok && progress.stepIndex == 3)
+    }
+
+    @Test func speedPromptShowsRemainingHoldOnlyAfterStart() {
+        var progress = TutorialProgress(session: .freeOnly, stepIndex: 2)
+        #expect(progress.prompt == "Hold `Z` and move — go faster.")
+
+        var clock = SpeedDemoClock()
+        _ = clock.advance(active: true, dt: 0.3, goal: 1)
+        #expect(clock.tenthsLeft(goal: 1) == 7)
+        _ = clock.advance(active: true, dt: 0.6, goal: 1)
+        #expect(clock.tenthsLeft(goal: 1) == 1)
+
+        progress.setSpeedTenthsLeft(7)
+        #expect(progress.prompt == "Hold `Z` and move — go faster. Keep holding `Z` and move for 0.7 more seconds.")
+    }
+
+    @Test func zoomPromptNamesTheMissingDirection() {
+        var progress = TutorialProgress(session: .freeOnly, stepIndex: 7)
+        #expect(progress.current?.required == .zoomedAll)
+        #expect(progress.prompt == "Zoom the blue strip — `⌘` + `.` in, `⌘` + `,` out.")
+        _ = progress.handle(.zoomed(.in))
+        #expect(progress.prompt == "Zoom the blue strip — `⌘` + `.` in, `⌘` + `,` out. Keep zooming out `⌘` + `,`.")
+        _ = progress.handle(.zoomed(.out))
+        #expect(progress.stepIndex == 8)
+    }
+
+    @Test func keycapMarkupSplitsChords() {
+        let runs = KeycapMarkup.parse("Keep zooming out `⌘` + `,`.")
+        #expect(runs.map(\.isKey) == [false, true, false, true, false])
+        #expect(runs.filter(\.isKey).map(\.text) == ["⌘", ","])
     }
 
     @Test func skipCompletes() {
         var progress = TutorialProgress(session: .hintMode)
         let ok = progress.handle(.skipped)
         #expect(ok && progress.completed)
+    }
+
+    @Test func puckDropCountsACenterInsideTheRing() {
+        #expect(!PuckDrop.contains(offset: .zero))
+        #expect(PuckDrop.contains(offset: CGSize(width: PuckDrop.dropX - PuckDrop.homeX, height: 0)))
+        #expect(PuckDrop.contains(offset: CGSize(width: 160, height: 40)))
+        #expect(!PuckDrop.contains(offset: CGSize(width: 160, height: 60)))
     }
 
     @Test func movedOnSteerStepLeavesProgressEqual() {

@@ -27,11 +27,12 @@ struct HintOverlayView: View {
                 }
                 let rounded = Path(roundedRect: localBubble, cornerRadius: 6)
                 context.fill(rounded, with: .color(fill))
-                if model.nav.hintState.armedID == bubble.id {
+                let style = model.nav.hintState.style(for: bubble.code)
+                if style.highlighted {
                     context.stroke(rounded, with: .color(line), lineWidth: 2)
                 }
                 context.draw(
-                    Text(bubble.code).font(.system(size: 12, weight: .bold, design: .monospaced)).foregroundColor(text),
+                    Self.codeText(bubble.code, style: style, text: text),
                     at: CGPoint(x: localBubble.midX, y: localBubble.midY),
                     anchor: .center
                 )
@@ -39,6 +40,21 @@ struct HintOverlayView: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    /// ponytail: typed letters shift toward amber off the text color. No extra config key.
+    private static func codeText(_ code: String, style: HintCodeStyle, text: Color) -> Text {
+        var attr = AttributedString(code)
+        attr.foregroundColor = text
+        if style.tintedCount > 0 {
+            let end = attr.index(attr.startIndex, offsetByCharacters: min(style.tintedCount, code.count))
+            attr[attr.startIndex..<end].foregroundColor = text.mix(
+                with: Color(red: 1, green: 0.72, blue: 0.15),
+                by: 0.45,
+                in: .perceptual
+            )
+        }
+        return Text(attr).font(.system(size: 12, weight: .bold, design: .monospaced))
     }
 
     private static func toLocal(_ r: CGRect, screen: CGRect) -> CGRect {

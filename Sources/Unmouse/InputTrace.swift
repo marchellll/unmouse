@@ -19,6 +19,11 @@ enum InputTrace {
         fflush(stderr)
     }
 
+    /// CGEvent global, origin at the top-left of the main screen. Same form as click logs.
+    static func point(_ p: CGPoint) -> String {
+        "\(Int(p.x.rounded())),\(Int(p.y.rounded()))"
+    }
+
     static func flags(_ flags: CGEventFlags) -> String {
         var parts: [String] = []
         if flags.contains(.maskCommand) { parts.append("⌘") }

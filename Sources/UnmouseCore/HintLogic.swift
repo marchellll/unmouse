@@ -174,6 +174,19 @@ public struct HintState: Equatable, Sendable {
         return targets.filter { $0.code.hasPrefix(typed) }
     }
 
+    /// How to draw `code` for the keys typed so far.
+    /// An exact code is highlighted even when a longer code still shares it —
+    /// space can already fire that target. Longer codes tint only the typed prefix.
+    public func style(for code: String) -> HintCodeStyle {
+        guard !typed.isEmpty, code.hasPrefix(typed) else {
+            return HintCodeStyle(highlighted: false, tintedCount: 0)
+        }
+        if code == typed {
+            return HintCodeStyle(highlighted: true, tintedCount: 0)
+        }
+        return HintCodeStyle(highlighted: false, tintedCount: typed.count)
+    }
+
     public mutating func typeCharacter(_ ch: Character) -> HintTypeResult {
         if armedID != nil { return .ignored }
         let next = typed + String(ch).lowercased()
@@ -217,6 +230,18 @@ public enum HintTypeResult: Equatable, Sendable {
     case narrowed
     case armed(HintTarget)
     case ignored
+}
+
+public struct HintCodeStyle: Equatable, Sendable {
+    /// Stroke the bubble. The typed code matches this label exactly, so it is actionable.
+    public var highlighted: Bool
+    /// Leading characters that match a still-open longer code. The rest stay the normal text color.
+    public var tintedCount: Int
+
+    public init(highlighted: Bool, tintedCount: Int) {
+        self.highlighted = highlighted
+        self.tintedCount = tintedCount
+    }
 }
 
 /// Seam for future AI vision. Live source is accessibility.

@@ -68,12 +68,34 @@ struct HintTests {
         ])
         let first = state.typeCharacter("a")
         #expect(first == .narrowed)
+        #expect(state.style(for: "as") == HintCodeStyle(highlighted: false, tintedCount: 1))
+        #expect(state.style(for: "df") == HintCodeStyle(highlighted: false, tintedCount: 0))
         let second = state.typeCharacter("s")
         if case .armed(let t) = second {
             #expect(t.id == "1")
         } else {
             Issue.record("expected armed")
         }
+        #expect(state.style(for: "as") == HintCodeStyle(highlighted: true, tintedCount: 0))
+    }
+
+    @Test func exactCodeHighlightsBesideLongerPrefix() {
+        var state = HintState(targets: [
+            HintTarget(id: "r", title: "Run", frame: .zero, code: "r"),
+            HintTarget(id: "ru", title: "Rules", frame: .zero, code: "ru"),
+        ])
+        #expect(state.typeCharacter("r") == .narrowed)
+        #expect(state.armedID == nil)
+        #expect(state.style(for: "r") == HintCodeStyle(highlighted: true, tintedCount: 0))
+        #expect(state.style(for: "ru") == HintCodeStyle(highlighted: false, tintedCount: 1))
+        let done = state.typeCharacter("u")
+        if case .armed(let t) = done {
+            #expect(t.id == "ru")
+        } else {
+            Issue.record("expected armed")
+        }
+        #expect(state.style(for: "ru") == HintCodeStyle(highlighted: true, tintedCount: 0))
+        #expect(state.style(for: "r") == HintCodeStyle(highlighted: false, tintedCount: 0))
     }
 
     @Test func spaceArmsExactSingleCharOverLongerPrefix() {

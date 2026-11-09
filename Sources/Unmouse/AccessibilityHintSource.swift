@@ -4,20 +4,36 @@ import UnmouseCore
 
 struct AccessibilityHintSource: HintSource {
     func collect() async -> [HintTarget] {
-        await Task.detached(priority: .userInitiated) {
-            Self.collectSync()
-        }.value
+        // Another app answers on its own threads, whoever asks. The wait stays off our main thread.
+        let outside = await Task.detached(priority: .userInitiated) { Self.scanOtherApp() }.value
+        switch outside {
+        case .targets(let targets): return targets
+        // Our own windows cannot be read through the system API: SwiftUI evaluates its bindings
+        // on the calling thread, which trapped in `launchAtLoginBinding`. Read them in-process, on main.
+        case .ownApp: return await MainActor.run { Self.scanOwnWindow() }
+        }
     }
 
-    nonisolated private static func collectSync() -> [HintTarget] {
-        guard AXIsProcessTrusted() else { return [] }
+    private enum Scan: Sendable {
+        case targets([HintTarget])
+        case ownApp
+    }
+
+    nonisolated private static func scanOtherApp() -> Scan {
+        guard AXIsProcessTrusted() else { return .targets([]) }
         let system = AXUIElementCreateSystemWide()
+        prime(system)
         var focusedApp: CFTypeRef?
         guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success,
               let focusedApp
-        else { return [] }
+        else { return .targets([]) }
 
         let appEl = unsafeDowncast(focusedApp as AnyObject, to: AXUIElement.self)
+        var pid: pid_t = 0
+        if AXUIElementGetPid(appEl, &pid) == .success, pid == ProcessInfo.processInfo.processIdentifier {
+            return .ownApp
+        }
+        prime(appEl)
         AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 
         var window: CFTypeRef?
@@ -33,11 +49,17 @@ struct AccessibilityHintSource: HintSource {
         var results: [HintTarget] = []
         var count = 0
         walk(root, into: &results, count: &count, limit: 400)
-        return results
+        return .targets(results)
+    }
+
+    /// ponytail: one timeout per element, not inherited. A stuck control costs 0.25s and is skipped. Ceiling is a 400-node tree of hung elements.
+    nonisolated private static func prime(_ el: AXUIElement) {
+        AXUIElementSetMessagingTimeout(el, 0.25)
     }
 
     nonisolated private static func walk(_ el: AXUIElement, into results: inout [HintTarget], count: inout Int, limit: Int) {
         guard count < limit else { return }
+        prime(el)
         if isActionable(el), let frame = frame(of: el), isHintSized(frame) {
             let title = stringAttr(el, kAXTitleAttribute as CFString)
                 ?? stringAttr(el, kAXDescriptionAttribute as CFString)
@@ -54,6 +76,41 @@ struct AccessibilityHintSource: HintSource {
         else { return }
         for child in arr {
             walk(child, into: &results, count: &count, limit: limit)
+        }
+    }
+
+    // MARK: Own windows
+
+    /// Frames from NSAccessibility are already screen points with a bottom-left origin, the same as `walk`.
+    /// ponytail: roles only, no press-action fallback. Unmouse's own controls all carry a role from `actionableRoles`.
+    @MainActor private static func scanOwnWindow() -> [HintTarget] {
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return [] }
+        var results: [HintTarget] = []
+        var visited = 0
+        walkOwn(window, into: &results, visited: &visited, limit: 400)
+        return results
+    }
+
+    @MainActor private static func walkOwn(_ node: Any, into results: inout [HintTarget], visited: inout Int, limit: Int) {
+        guard results.count < limit, visited < 4_000 else { return }
+        visited += 1
+        guard let element = node as? NSAccessibilityProtocol else { return }
+        let role = element.accessibilityRole()?.rawValue ?? ""
+        if actionableRoles.contains(role), !deniedRoles.contains(role),
+           let owner = node as? NSAccessibilityElementProtocol
+        {
+            let frame = owner.accessibilityFrame()
+            if isHintSized(frame) {
+                let title = element.accessibilityTitle()
+                    ?? element.accessibilityLabel()
+                    ?? element.accessibilityRoleDescription()
+                    ?? ""
+                let id = "\(role)-\(Int(frame.origin.x))-\(Int(frame.origin.y))-\(results.count)"
+                results.append(HintTarget(id: id, title: title, frame: frame))
+            }
+        }
+        for child in element.accessibilityChildren() ?? [] {
+            walkOwn(child, into: &results, visited: &visited, limit: limit)
         }
     }
 

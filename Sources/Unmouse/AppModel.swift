@@ -234,6 +234,10 @@ final class AppModel {
         tutorial.skip()
     }
 
+    func moveTutorial(by delta: Int) {
+        tutorial.move(by: delta)
+    }
+
     func noteArena(_ event: TutorialEvent) {
         tutorial.note(event)
     }

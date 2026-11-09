@@ -41,6 +41,10 @@ final class NavigationModel {
     private var leftClicks = LeftClickChain()
     private var lastModeActivityNanos: UInt64 = 0
     private var modeWatchTimer: DispatchSourceTimer?
+    /// Free movement is one burst. A gap shorter than this stays one move.
+    private var freeMoveOpen = false
+    private var freeMoveIdle: TimeInterval = 0
+    private let freeMoveGap: TimeInterval = 0.2
     private var hintLoadGeneration: UInt64 = 0
 
     init(app: AppModel) {
@@ -364,6 +368,7 @@ final class NavigationModel {
                 if mode == .grid, let center = gridState?.prospectiveCenter {
                     InputTrace.log("nav → gridToFree at \(center)")
                     PointerController.move(toAppKit: center)
+                    InputTrace.log("grid move \(InputTrace.point(PointerController.location))")
                     enterFree(fromGrid: true)
                     return false
                 }
@@ -461,6 +466,7 @@ final class NavigationModel {
     private func moveCursor(to center: CGPoint) {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         let cg = CoordinateSpace.appKitToCGEvent(center, primaryHeight: primaryH)
+        InputTrace.log("grid move \(InputTrace.point(cg))")
         if dragging {
             let current = PointerController.location
             PointerController.moveBy(dx: cg.x - current.x, dy: cg.y - current.y, dragging: true)
@@ -654,10 +660,12 @@ final class NavigationModel {
 
     private func moveToHint(_ target: HintTarget) {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        PointerController.move(to: CoordinateSpace.appKitToCGEvent(
+        let cg = CoordinateSpace.appKitToCGEvent(
             CGPoint(x: target.frame.midX, y: target.frame.midY),
             primaryHeight: primaryH
-        ))
+        )
+        InputTrace.log("hint move \(InputTrace.point(cg))")
+        PointerController.move(to: cg)
     }
 
     private func loadHints(generation: UInt64) async {
@@ -710,12 +718,29 @@ final class NavigationModel {
     }
 
     private func stopDisplayLink() {
+        endFreeMoveLog()
         displayLink.stop()
     }
 
     private func tickFreeMode(dt: TimeInterval) {
         guard mode == .free else { return }
+        let origin = PointerController.location
         let result = motion.tick(dt: dt, free: app.config.free, bindings: bindings.free, dragging: dragging)
+        if dragging, app.tutorial?.progress?.arenaFocus == .drag {
+            let next = PointerController.location
+            // CGEvent +y is down, same direction as the puck's SwiftUI offset.
+            app.tutorial?.nudgePuck(dx: next.x - origin.x, dy: next.y - origin.y)
+        }
+        if result.moved {
+            if !freeMoveOpen {
+                InputTrace.log("free move start \(InputTrace.point(origin))")
+                freeMoveOpen = true
+            }
+            freeMoveIdle = 0
+        } else if freeMoveOpen {
+            freeMoveIdle += dt
+            if freeMoveIdle >= freeMoveGap { endFreeMoveLog() }
+        }
         if result.moved || result.scrolled { bumpModeActivity() }
         // Speed demo: credit Z/X tutorial steps that require sustained motion.
         if let ev = motion.creditSpeedDemo(
@@ -726,7 +751,15 @@ final class NavigationModel {
             InputTrace.log("speedDemo done → \(ev)")
             onTutorial?(ev)
         }
+        app.tutorial?.showSpeedTenthsLeft(motion.speedTenthsLeft)
         app.overlayController?.syncFreeDot(dragging: dragging)
+    }
+
+    private func endFreeMoveLog() {
+        guard freeMoveOpen else { return }
+        InputTrace.log("free move end \(InputTrace.point(PointerController.location))")
+        freeMoveOpen = false
+        freeMoveIdle = 0
     }
 
     // MARK: - Mode timeout watch

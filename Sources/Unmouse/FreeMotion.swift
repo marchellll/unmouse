@@ -21,6 +21,7 @@ final class FreeMotion {
     private var scrollFracX: Double = 0
     private var scrollFracY: Double = 0
     private var speedClock = SpeedDemoClock()
+    private var speedDemoFor: TutorialEvent?
 
     func resetMotionClocks() {
         moveHeld = 0
@@ -33,6 +34,12 @@ final class FreeMotion {
 
     func resetSpeedDemo() {
         speedClock = .init()
+        speedDemoFor = nil
+    }
+
+    /// Tenths left on the Z/X hold. Nil until the hold has started.
+    var speedTenthsLeft: Int? {
+        speedClock.held > 0 ? speedClock.tenthsLeft(goal: TutorialProgress.speedDemoSeconds) : nil
     }
 
     func resetAll() {
@@ -195,6 +202,10 @@ final class FreeMotion {
         moved: Bool,
         dt: TimeInterval
     ) -> TutorialEvent? {
+        if required != speedDemoFor {
+            speedDemoFor = required
+            speedClock = .init()
+        }
         let active: Bool
         switch required {
         case .heldFaster: active = faster && moved

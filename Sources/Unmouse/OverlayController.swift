@@ -14,6 +14,7 @@ final class OverlayController {
     private var coachPanel: NSPanel?
     private var gridShade: SelectionShadeView?
     private var gridLines: GridLinesView?
+    private var gridGuide: GridGuideView?
     /// Re-pin CALayer compositingFilter — AppKit/SwiftUI clears it after a couple seconds.
     private var blendKeepalive: DispatchSourceTimer?
 
@@ -52,15 +53,20 @@ final class OverlayController {
             shade.autoresizingMask = [.width, .height]
             let created = GridLinesView(frame: bounds)
             created.autoresizingMask = [.width, .height]
+            let guide = GridGuideView(frame: bounds)
+            guide.autoresizingMask = [.width, .height]
             container.addSubview(shade)
             container.addSubview(created)
+            container.addSubview(guide)
             panel.contentView = container
             gridShade = shade
             gridLines = created
+            gridGuide = guide
             lines = created
         }
         gridShade?.frame = bounds
         lines.frame = bounds
+        gridGuide?.frame = bounds
         panel.contentView?.layerUsesCoreImageFilters = true
         gridShade?.apply(
             state: model.gridState,
@@ -81,6 +87,7 @@ final class OverlayController {
     func hideGrid() {
         gridShade = nil
         gridLines = nil
+        gridGuide = nil
         gridPanels.forEach { $0.orderOut(nil) }
         gridPanels = []
         if freeDotPanel == nil || freeDotPanel?.isVisible != true {
@@ -278,6 +285,24 @@ final class OverlayController {
             glowRadius: nested ? CGFloat(grid.subGlowRadius) : 0
         )
         lines.applyBlend(model.config.colors.gridBlend)
+        refreshGuide()
+    }
+
+    /// Aim-and-hit card. Sits above the grid lines and outside their blend, so the words stay readable.
+    func refreshGuide() {
+        guard let guide = gridGuide, let model, let state = model.gridState else {
+            gridGuide?.clear()
+            return
+        }
+        guard let click = model.tutorial.progress?.current?.gridGuide,
+              let anchor = model.tutorial.guideAnchor, anchor.width > 1, anchor.height > 1
+        else {
+            guide.clear()
+            return
+        }
+        let point = CGPoint(x: anchor.midX, y: anchor.midY)
+        let screen = state.levels[0].origin
+        guide.apply(cue: state.guide(at: point, click: click), screenOrigin: screen, avoid: anchor)
     }
 
     /// Keep compositingFilter forever — SwiftUI / AppKit clears it after ~2s otherwise.

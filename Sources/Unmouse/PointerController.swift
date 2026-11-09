@@ -14,8 +14,14 @@ enum PointerController {
     /// Sub-pixel remainder. A frame under 1px must not vanish, and must not stick as a later delta.
     private static var pendingX: Double = 0
     private static var pendingY: Double = 0
+    /// Last point we posted. mouseLocation lags, and a nudge or click that reads it puts the pointer back.
+    private static var aim = PointerAim()
 
     static var location: CGPoint {
+        aim.resolve(live: systemLocation)
+    }
+
+    private static var systemLocation: CGPoint {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         return CoordinateSpace.appKitToCGEvent(NSEvent.mouseLocation, primaryHeight: primaryH)
     }
@@ -72,11 +78,13 @@ enum PointerController {
         event.setIntegerValueField(.mouseEventDeltaX, value: dx)
         event.setIntegerValueField(.mouseEventDeltaY, value: dy)
         send(event)
+        aim.remember(live: systemLocation, point: point)
     }
 
     static func click(_ button: MouseButton, count: Int = 1, from: Int = 1) {
         let (downType, upType, cgButton) = mapping(button)
         let p = location
+        InputTrace.log("click \(button.rawValue) at \(InputTrace.point(p))")
         let start = max(1, from)
         for i in start...max(start, count) {
             let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: p, mouseButton: cgButton)
@@ -92,14 +100,18 @@ enum PointerController {
 
     static func mouseDown(_ button: MouseButton = .left) {
         let (downType, _, cgButton) = mapping(button)
-        let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: location, mouseButton: cgButton)
+        let p = location
+        InputTrace.log("drag down \(button.rawValue) at \(InputTrace.point(p))")
+        let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: p, mouseButton: cgButton)
         stampStill(down)
         send(down)
     }
 
     static func mouseUp(_ button: MouseButton = .left) {
         let (_, upType, cgButton) = mapping(button)
-        let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: location, mouseButton: cgButton)
+        let p = location
+        InputTrace.log("drag up \(button.rawValue) at \(InputTrace.point(p))")
+        let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: p, mouseButton: cgButton)
         stampStill(up)
         send(up)
     }

@@ -28,8 +28,8 @@ public struct GridState: Equatable, Sendable {
     /// Division used by every grid after the first.
     public var subRows: Int
     public var subCols: Int
-    private let rootRows: Int
-    private let rootCols: Int
+    let rootRows: Int
+    let rootCols: Int
     public var chars: String
     public var depth: Int
     public var screenIndex: Int
