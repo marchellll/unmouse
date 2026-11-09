@@ -2,50 +2,58 @@
 
 `scripts/release.sh` reads `CFBundleShortVersionString` in `Support/Info.plist`. When that version is already tagged, it bumps the patch number until the tag is free, then increments `CFBundleVersion`. It builds a release binary, wraps it as `Unmouse.app`, signs it, and writes `dist/Unmouse-<version>.dmg`. The disk image holds `Unmouse.app` and an `Applications` link for drag-to-install. With a Developer ID Application certificate and a notarytool keychain profile, it signs, notarizes, and staples the disk image, then commits the plist, tags `v<version>`, and pushes the tag.
 
-## One-time setup
+An Apple Development certificate still produces the disk image. That path skips notarization and leaves `Support/Info.plist` and git unchanged.
 
-1. Install a **Developer ID Application** certificate in the login keychain. An Apple Development certificate can build a disk image, and the script will say it is local-only and skip notarization.
-2. Store notary credentials in the keychain. The profile name defaults to `notarytool`.
+## New Mac
+
+Same Apple ID. The Developer ID Application `.p12` is the thing to import. The `.cer` alone cannot sign.
+
+1. Double-click the `.p12` and enter the password set when it was exported. It lands in the login keychain.
+2. Confirm the identity. The team id to use below is the one in parentheses on this line, not the one on an Apple Development identity:
+
+```sh
+security find-identity -p codesigning -v | grep "Developer ID Application"
+```
+
+3. At appleid.apple.com, create an app-specific password under Sign-In and Security. Then store notary credentials. Choose the Apple ID option, not an API key. Profile name `notarytool`. Team id is the one from the command above.
 
 ```sh
 xcrun notarytool store-credentials notarytool
+xcrun notarytool history --keychain-profile notarytool
 ```
 
-3. Optional. Copy the example and set identities when you do not want the first match in the keychain:
+`No submission history` means the credentials saved. Each Mac stores this itself. The `.p12` does not carry it.
 
-```sh
-cp signing.env.example signing.env
-```
-
-`signing.env` is gitignored. `scripts/release.sh` sources it. The variables it reads:
-
-| Variable | Use |
-|---|---|
-| `UNMOUSE_DEVELOPER_ID_IDENTITY` | `Developer ID Application: …` identity. When this is set, or when that kind of identity is in the keychain, the script notarizes. |
-| `UNMOUSE_CODESIGN_IDENTITY` | `Apple Development: …` identity, used when no Developer ID is available. |
-| `UNMOUSE_NOTARY_PROFILE` | notarytool keychain profile. Default `notarytool`. |
+`signing.env` is optional and gitignored. Copy `signing.env.example` only to pin an identity instead of the first match in the keychain.
 
 ## Cut a release
 
-1. Run the tests:
+Release from one Mac at a time. Pull first so a version another Mac already shipped is not reused:
 
 ```sh
+git pull --ff-only
 swift test
 swift test --package-path Packages/BoundaryLabeling
 ```
 
-2. Start from a clean working tree:
+Working tree must be clean. Set `CFBundleShortVersionString` first when shipping a new minor or major. Otherwise the script keeps the plist version, or bumps the patch when that tag already exists.
 
 ```sh
 ./scripts/release.sh
 ```
 
-With the plist at `0.1.0` and tag `v0.1.0` already there, this ships `0.1.1`. Set `CFBundleShortVersionString` to a new minor or major first when that is the version to ship; the script keeps it when that tag does not exist yet. Output is `dist/Unmouse-<version>.dmg`, next to `dist/Unmouse.app`.
+It checks the notary profile before building. After a successful staple and `spctl` assessment it writes the version into `Support/Info.plist`, commits that file as `release: v<version>`, pushes `HEAD`, tags `v<version>`, and pushes the tag. The last line before the release path is the DMG's sha256. A missing profile, a failed notarization, or a failed assessment leaves `Support/Info.plist` unchanged.
 
-It checks the notary profile before building. After a successful staple and `spctl` assessment it writes the version into `Support/Info.plist`, commits that file as `release: v<version>`, pushes `HEAD`, tags `v<version>`, and pushes the tag to `origin`. A missing profile, a failed notarization, or a failed assessment leaves `Support/Info.plist` unchanged.
+Open `dist/Unmouse.app`, grant Accessibility and Input Monitoring for that signature, and confirm grid, free, and hint each open.
 
-3. Open `dist/Unmouse.app`, grant Accessibility and Input Monitoring for that signature, and confirm grid, free, and hint each open.
+Publish the DMG, then point the [Homebrew cask](https://github.com/marchellll/homebrew-unmouse) at it. In `Casks/unmouse.rb`, set `version` and paste the sha256 the script printed. The URL already ends in `.dmg`.
 
-4. Update [`Casks/unmouse.rb`](https://github.com/marchellll/homebrew-unmouse) in the Homebrew tap. Set `version`, `sha256` from `shasum -a 256 dist/Unmouse-<version>.dmg`, and the asset suffix to `.dmg`. Attach the disk image to the GitHub Release for the tag.
+```sh
+gh release create v<version> dist/Unmouse-<version>.dmg --repo marchellll/unmouse --title "Unmouse <version>"
+```
 
-An Apple Development certificate still produces the disk image. That path leaves `Support/Info.plist` and git unchanged.
+Push the cask, then:
+
+```sh
+brew fetch --cask marchellll/unmouse/unmouse
+```
