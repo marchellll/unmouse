@@ -8,7 +8,7 @@ Unmouse is a Swift package. `Unmouse` is the menu-bar app. `UnmouseCore` is the 
 - Swift 6.4 (`Package.swift` tools version is 6.4)
 - An Apple Development certificate, to run `Unmouse.app`
 
-`swift test` does not need a certificate. Launching the app does, because Accessibility and Input Monitoring stick to a stable signature.
+`swift test` does not need a certificate. Launching the app does, because Accessibility and Input Monitoring stick to a stable signature. A new signature is a different app to macOS, so grant both again after switching between a development build and a notarized one.
 
 ## Where code goes
 
@@ -24,7 +24,7 @@ swift test
 swift test --package-path Packages/BoundaryLabeling
 ```
 
-Run the app with the signed bundle, not `swift run`:
+Run the app with the signed bundle, not `swift run`. **Open at login** registers `Unmouse.app` only. It does not register a bare `swift run` binary.
 
 ```sh
 ./scripts/dev-app.sh
@@ -39,4 +39,4 @@ open Unmouse.app
 
 For a user-visible change, run `./scripts/dev-app.sh`, launch `Unmouse.app`, and try the mode you touched: open it, do the action, cancel, and confirm Settings still loads `config.toml`. Grid, free, and hint share the event path in `Sources/Unmouse/Input/NavigationModel.swift`, so a shortcut change is worth a pass through the other two modes.
 
-Input tracing currently always prints to stderr and to Console, subsystem `xyz.marchell.unmouse`, category `input`. The config log level gates the `app` category.
+Logs go to Console under subsystem `xyz.marchell.unmouse`. Input tracing always prints to stderr and to category `input`. The log level in Settings gates category `app`. `none` writes nothing there.

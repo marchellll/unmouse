@@ -15,17 +15,6 @@ brew trust marchellll/unmouse
 brew install --cask marchellll/unmouse/unmouse
 ```
 
-Or build a signed copy from source. You need Swift 6.4 and an Apple Development certificate in the keychain.
-
-```sh
-git clone https://github.com/marchellll/unmouse.git
-cd unmouse
-./scripts/dev-app.sh
-open Unmouse.app
-```
-
-The script writes `Unmouse.app` in the repo root and signs it with the first Apple Development identity it finds. Set `UNMOUSE_CODESIGN_IDENTITY` to pick a different one.
-
 ## Permissions
 
 Unmouse has no Dock icon. Use the menu-bar icon, then **Settings…**.
@@ -33,11 +22,9 @@ Unmouse has no Dock icon. Use the menu-bar icon, then **Settings…**.
 The first launch walks through two permissions:
 
 - **Accessibility** moves the pointer, clicks, scrolls, and reads on-screen controls for hint mode.
-- **Input Monitoring** lets the event tap see the keys that open and drive each mode.
+- **Input Monitoring** lets Unmouse see the keys that open and drive each mode.
 
-Both have to stay granted for the signed `Unmouse.app` you actually launch. A new signature is a different app to macOS, so grant them again after switching between a development build and a notarized one.
-
-**Open at login** works for `Unmouse.app`. It does not register a bare `swift run` binary.
+Leave both granted. Unmouse cannot move the pointer or see those keys without them.
 
 ## Use
 
@@ -61,9 +48,7 @@ Settings write `~/Library/Application Support/unmouse/config.toml`. Editing that
 
 Shortcut syntax is in the comments at the bottom of [`configs-example/default.config.toml`](configs-example/default.config.toml). One key, or modifiers plus one key joined by `+`. A value can be a list of shortcuts.
 
-With **Karabiner** on (the default), Unmouse also reads [Karabiner-Elements](https://karabiner-elements.pqrs.org/)’ virtual keyboard, so mode keys still arrive while another app has Secure Input. Off uses the event tap only. Settings shows which path is live.
-
-Logs go to Console under subsystem `xyz.marchell.unmouse`, category `app`. The level is in Settings. `none` writes nothing.
+With **Karabiner** on (the default), mode keys still arrive while another app has Secure Input, such as a password field. Settings shows whether [Karabiner-Elements](https://karabiner-elements.pqrs.org/) is in use.
 
 ## Development
 
