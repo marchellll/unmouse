@@ -23,21 +23,18 @@ struct ConfigTests {
     }
 
     @Test func defaultConfigValidates() throws {
-        let url = Bundle.module.url(
-            forResource: "default.config",
-            withExtension: "toml",
-            subdirectory: "configs-example"
-        )
-        let text = try String(contentsOf: try #require(url), encoding: .utf8)
+        let url = exampleConfigsDirectory().appending(path: "default.config.toml")
+        let text = try String(contentsOf: url, encoding: .utf8)
         let config = try ConfigIO.decode(from: text)
         let errors = ConfigValidator.validate(config)
         #expect(errors.isEmpty)
     }
 
     @Test func allExampleConfigsValidate() throws {
-        let urls = try #require(
-            Bundle.module.urls(forResourcesWithExtension: "toml", subdirectory: "configs-example")
-        )
+        let urls = try FileManager.default.contentsOfDirectory(
+            at: exampleConfigsDirectory(),
+            includingPropertiesForKeys: nil
+        ).filter { $0.pathExtension == "toml" }
         #expect(!urls.isEmpty)
         for url in urls {
             let text = try String(contentsOf: url, encoding: .utf8)
@@ -137,5 +134,14 @@ struct ConfigTests {
         var multiError: ShortcutParseError?
         do { _ = try ShortcutParser.parse("h+j") } catch let e as ShortcutParseError { multiError = e }
         #expect(multiError == .comboWithMultipleKeys("h+j"))
+    }
+
+    /// Presets live once, at the repo root. This file is Tests/UnmouseCoreTests/ConfigTests.swift.
+    private func exampleConfigsDirectory() -> URL {
+        URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appending(path: "configs-example")
     }
 }

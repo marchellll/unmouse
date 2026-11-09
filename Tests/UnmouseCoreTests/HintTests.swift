@@ -111,6 +111,44 @@ struct HintTests {
         #expect(state.armedID == "short")
     }
 
+    @Test func backspaceClearsAnArmedTarget() {
+        var state = HintState(targets: [
+            HintTarget(id: "1", title: "Save", frame: .zero, code: "s"),
+            HintTarget(id: "2", title: "Settings", frame: .zero, code: "se"),
+        ])
+        #expect(state.typeCharacter("s") == .narrowed)
+        let armed = state.armExactMatch()
+        #expect(armed)
+        #expect(state.armedID == "1")
+        #expect(state.typeCharacter("e") == .ignored)
+        #expect(state.typed == "s")
+        #expect(state.armedID == "1")
+        let stillArmed = state.armExactMatch()
+        #expect(stillArmed)
+        state.backspace()
+        #expect(state.armedID == nil)
+        #expect(state.typed.isEmpty)
+        #expect(state.armedTarget == nil)
+        let gone = state.armExactMatch()
+        #expect(!gone)
+    }
+
+    @Test func backspaceDropsOneCharacterAndUnknownKeysDoNothing() {
+        var state = HintState(targets: [
+            HintTarget(id: "1", title: "Ok", frame: .zero, code: "as"),
+        ])
+        #expect(state.typeCharacter("z") == .ignored)
+        #expect(state.typed.isEmpty)
+        #expect(state.typeCharacter("a") == .narrowed)
+        state.backspace()
+        #expect(state.typed.isEmpty)
+        #expect(state.armedID == nil)
+        state.backspace()
+        #expect(state.typed.isEmpty)
+        let noMatch = state.armExactMatch()
+        #expect(!noMatch)
+    }
+
     @Test func visionStubEmpty() async {
         let source = VisionHintSource()
         let items = await source.collect()

@@ -19,19 +19,12 @@ let package = Package(
                 .product(name: "TOMLKit", package: "TOMLKit"),
                 "BoundaryLabeling",
             ],
-            path: "Sources/UnmouseCore",
-            resources: [
-                .copy("Resources"),
-            ]
+            path: "Sources/UnmouseCore"
         ),
         .executableTarget(
             name: "Unmouse",
             dependencies: ["UnmouseCore"],
             path: "Sources/Unmouse",
-            exclude: ["Info.plist"],
-            resources: [
-                .copy("Resources"),
-            ],
             swiftSettings: [
                 .defaultIsolation(MainActor.self),
             ]
@@ -39,10 +32,7 @@ let package = Package(
         .testTarget(
             name: "UnmouseCoreTests",
             dependencies: ["UnmouseCore"],
-            path: "Tests/UnmouseCoreTests",
-            resources: [
-                .copy("Fixtures/configs-example"),
-            ]
+            path: "Tests/UnmouseCoreTests"
         ),
     ]
 )

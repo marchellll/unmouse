@@ -234,6 +234,17 @@ struct TutorialTests {
         #expect(!PuckDrop.contains(offset: CGSize(width: 160, height: 60)))
     }
 
+    @Test func puckNudgeFollowsThePointerOnlyOnTheDragStep() {
+        let home = CGSize(width: 10, height: -4)
+        #expect(PuckDrop.nudge(home, dx: 0, dy: 0, onDragStep: true) == home)
+        #expect(PuckDrop.nudge(home, dx: 30, dy: 8, onDragStep: false) == home)
+        let stepped = PuckDrop.nudge(home, dx: 30, dy: 8, onDragStep: true)
+        #expect(stepped == CGSize(width: 40, height: 4))
+        let landed = PuckDrop.nudge(stepped, dx: 120, dy: -4, onDragStep: true)
+        #expect(landed == CGSize(width: PuckDrop.dropX - PuckDrop.homeX, height: 0))
+        #expect(PuckDrop.contains(offset: landed))
+    }
+
     @Test func movedOnSteerStepLeavesProgressEqual() {
         var progress = TutorialProgress(session: .freeOnly)
         _ = progress.handle(.enteredFree)

@@ -26,13 +26,6 @@ cp "$BIN" "$APP/Contents/MacOS/Unmouse"
 cp "$ROOT/Support/Info.plist" "$APP/Contents/Info.plist"
 cp -R "$ROOT/configs-example" "$APP/Contents/Resources/configs-example"
 
-# SPM resource bundles (required if anything touches Bundle.module)
-for bundle in Unmouse_Unmouse.bundle Unmouse_UnmouseCore.bundle; do
-  if [[ -d "$BIN_DIR/$bundle" ]]; then
-    cp -R "$BIN_DIR/$bundle" "$APP/Contents/Resources/"
-  fi
-done
-
 codesign --force --deep --sign "$IDENTITY" "$APP"
 
 echo "Built $APP (signed with: $IDENTITY)"

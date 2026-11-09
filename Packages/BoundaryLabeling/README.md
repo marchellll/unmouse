@@ -30,10 +30,6 @@ for label in placed {
 }
 ```
 
-## Publishing later
-
-Self-contained SwiftPM package under `Packages/BoundaryLabeling`. Move to its own repo, tag `0.1.0`, replace Unmouse’s `path:` dependency with the git URL.
-
 ## License
 
 MIT

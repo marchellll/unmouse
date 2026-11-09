@@ -261,4 +261,40 @@ struct GridTests {
         #expect(state.rows == 10)
         #expect(state.cols == 10)
     }
+
+    @Test func backspaceUndoesAPartialLabelThenDoesNothing() {
+        var state = GridState(
+            rows: 5, cols: 4, chars: "qwertyuiopasdfghjkl;", depth: 2,
+            screenOrigin: .zero, screenSize: CGSize(width: 100, height: 100)
+        )
+        #expect(state.backspace() == .noop)
+        #expect(state.typeCharacter("q") == .typing)
+        #expect(state.currentLevel.typed == "q")
+        #expect(state.backspace() == .clearedChar)
+        #expect(state.currentLevel.typed.isEmpty)
+        #expect(state.selectedCell == nil)
+        #expect(state.backspace() == .noop)
+    }
+
+    @Test func backspaceClearsAFinishedCellSoItCanBeRetyped() {
+        var state = GridState(
+            rows: 5, cols: 4, chars: "qwertyuiopasdfghjkl;", depth: 2,
+            screenOrigin: .zero, screenSize: CGSize(width: 400, height: 400)
+        )
+        #expect(state.typeCharacter("q") == .typing)
+        #expect(state.typeCharacter("q") == .openedSubgrid)
+        #expect(state.typeCharacter("w") == .selected(row: 0, col: 1))
+        #expect(state.isCellSelected)
+        #expect(state.backspace() == .clearedSelection)
+        #expect(state.selectedCell == nil)
+        #expect(state.currentLevel.typed.isEmpty)
+        #expect(!state.isCellSelected)
+        #expect(state.typeCharacter("e") == .selected(row: 0, col: 2))
+
+        state.selectedCell = GridCellIndex(row: 1, col: 1)
+        state.levels[state.levels.count - 1].typed = ""
+        #expect(state.backspace() == .clearedSelection)
+        #expect(state.selectedCell == nil)
+        #expect(state.currentLevel.typed.isEmpty)
+    }
 }
