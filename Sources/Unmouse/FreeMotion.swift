@@ -15,30 +15,30 @@ final class FreeMotion {
     let heldKeys = HeldKeyStore()
     let deduper = KeyDeduper()
     var speedLatch = SpeedModifierLatch()
-    var chordKeys: Set<String> = []
+    var chordPass = ChordPassthrough()
     private var moveHeld: TimeInterval = 0
     private var scrollHeld: TimeInterval = 0
     private var scrollFracX: Double = 0
     private var scrollFracY: Double = 0
-    private var speedDemoHeld: TimeInterval = 0
+    private var speedClock = SpeedDemoClock()
 
     func resetMotionClocks() {
         moveHeld = 0
         scrollHeld = 0
         scrollFracX = 0
         scrollFracY = 0
-        // ponytail: speedDemoHeld stays. tap reset calls resetAll often; wiping the
-        // Z/X clock there made the tutorial step never reach 1s while HID still moved.
+        // ponytail: speed clock stays. tap reset calls resetAll often; wiping it
+        // there made the Z/X step never reach 1s while HID still moved.
     }
 
     func resetSpeedDemo() {
-        speedDemoHeld = 0
+        speedClock = .init()
     }
 
     func resetAll() {
         heldKeys.clearHeld()
         speedLatch.reset()
-        chordKeys.removeAll()
+        chordPass.reset()
         resetMotionClocks()
     }
 
@@ -55,25 +55,11 @@ final class FreeMotion {
         }
     }
 
-    /// Arrow moves and scroll keys. Both can drop Z/X while they are still down.
+    /// Move and scroll keys. Arrow and scroll reports drop Z/X; letter moves can too.
     func speedKeyHeld(bindings: BindingTable.Free) -> Bool {
-        if arrowMoveHeld(bindings: bindings) { return true }
         for direction in MoveDirection.allCases {
+            if bindingHeld(bindings.moveRaw[direction] ?? [], chordDown: false) { return true }
             if bindingHeld(bindings.scrollRaw[direction] ?? [], chordDown: false) { return true }
-        }
-        return false
-    }
-
-    func arrowMoveHeld(bindings: BindingTable.Free) -> Bool {
-        for direction in MoveDirection.allCases {
-            for shortcut in (try? ShortcutParser.parseAll(bindings.moveRaw[direction] ?? [])) ?? [] {
-                switch shortcut.key {
-                case .left, .right, .up, .down:
-                    if heldKeys.isHeld(KeyCodes.token(for: shortcut.key)) { return true }
-                default:
-                    break
-                }
-            }
         }
         return false
     }
@@ -214,19 +200,13 @@ final class FreeMotion {
         case .heldFaster: active = faster && moved
         case .heldSlower: active = slower && moved
         default:
-            speedDemoHeld = 0
+            speedClock = .init()
             return nil
         }
-        guard active else {
-            speedDemoHeld = 0
+        guard speedClock.advance(active: active, dt: dt, goal: TutorialProgress.speedDemoSeconds) else {
             return nil
         }
-        let before = speedDemoHeld
-        speedDemoHeld += dt
-        guard before < TutorialProgress.speedDemoSeconds, speedDemoHeld >= TutorialProgress.speedDemoSeconds else {
-            return nil
-        }
-        speedDemoHeld = 0
+        speedClock = .init()
         return required
     }
 }

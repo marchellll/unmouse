@@ -38,7 +38,7 @@ final class NavigationModel {
     /// Action key (space, esc, …) whose key-down already ran and left the mode.
     /// Held until release so the key-up, repeats, and the other input source cannot reach the focused app.
     private var swallowUpToken: String?
-    private var lastLeftClickNanos: UInt64 = 0
+    private var leftClicks = LeftClickChain()
     private var lastModeActivityNanos: UInt64 = 0
     private var modeWatchTimer: DispatchSourceTimer?
     private var hintLoadGeneration: UInt64 = 0
@@ -236,7 +236,8 @@ final class NavigationModel {
         // ⌘ + a scroll key stays here. The wheel event keeps ⌘ so the app zooms.
         // Z/X stay here too, including under ⌘, so they scale that scroll.
         let keepSpeed = mode == .free && isFreeSpeedKey(kind)
-        if !hintShortcut, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed, passFreeChord(token: token, flags: flags, down: down) {
+        if !hintShortcut, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed,
+            passFreeChord(token: token, flags: flags, down: down, source: source) {
             InputTrace.log("nav chord passthrough \(token) \(down ? "↓" : "↑")")
             return false
         }
@@ -323,7 +324,7 @@ final class NavigationModel {
         case .idle:
             if global.gridMode.matches(key: kind, flags: flags, alone: false), kind.isModifier { return false }
             if global.freeMode.matches(key: kind, flags: flags, alone: false), kind.isModifier { return false }
-            if isLeftClickKey(kind, flags: flags), performLeftClick(secondOnly: true) { return true }
+            if isLeftClickKey(kind, flags: flags), performLeftClick(repeatOnly: true) { return true }
             return false
         case .grid:
             return handleGridKey(kind: kind, flags: flags)
@@ -571,14 +572,16 @@ final class NavigationModel {
         return MoveDirection.allCases.contains { matchesFreeScroll($0, key: kind, flags: flags) }
     }
 
-    /// Command/Option/Control plus a non-held key: let it through, but remember to pass the key-up.
-    private func passFreeChord(token: String, flags: CGEventFlags, down: Bool) -> Bool {
+    /// Command/Option/Control plus a non-held key: let it through, and pass that source's key-up.
+    /// Karabiner and the event tap are separate sources. Consuming the up on the first one
+    /// leaves the tap to swallow Tab, which sticks the key in macOS.
+    private func passFreeChord(token: String, flags: CGEventFlags, down: Bool, source: InputSource) -> Bool {
+        let fromTap = source == .tap
         if !down {
-            guard motion.chordKeys.contains(token) else { return false }
-            motion.chordKeys.remove(token); return true
+            return motion.chordPass.end(token: token, fromTap: fromTap)
         }
         guard mode == .free, !motion.heldKeys.isHeld(token), motion.chordModifierDown(flags) else { return false }
-        motion.chordKeys.insert(token)
+        motion.chordPass.begin(token: token, fromTap: fromTap)
         endFreeModeIfNeeded()
         return true
     }
@@ -670,19 +673,17 @@ final class NavigationModel {
 
     // MARK: - Click helpers
 
+    /// `repeatOnly` swallows the key only when it continues a click still inside the system interval.
+    /// Idle uses that so a second press double-clicks and a third triple-clicks, then the key types again.
     @discardableResult
-    private func performLeftClick(secondOnly: Bool = false) -> Bool {
-        let now = DispatchTime.now().uptimeNanoseconds
+    private func performLeftClick(repeatOnly: Bool = false) -> Bool {
         let window = UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
-        let second = lastLeftClickNanos != 0 && now &- lastLeftClickNanos <= window
-        if secondOnly, !second { return false }
-        if second {
-            PointerController.click(.left, from: 2)
-            lastLeftClickNanos = 0
-        } else {
-            PointerController.click(.left)
-            lastLeftClickNanos = now
-        }
+        guard let state = leftClicks.press(
+            now: DispatchTime.now().uptimeNanoseconds,
+            window: window,
+            repeatOnly: repeatOnly
+        ) else { return false }
+        PointerController.click(.left, from: state)
         onTutorial?(.leftClick)
         return true
     }

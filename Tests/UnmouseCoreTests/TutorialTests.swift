@@ -102,6 +102,17 @@ struct TutorialTests {
         #expect(ok && progress.current?.required == .hitLeftTarget)
     }
 
+    @Test func speedStepKeepsCreditAcrossADroppedFrame() {
+        var progress = TutorialProgress(session: .freeOnly, stepIndex: 2)
+        #expect(progress.current?.required == .heldFaster)
+        var ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.6)
+        #expect(!ok && progress.stepIndex == 2)
+        ok = progress.observeSpeed(faster: false, slower: false, moved: false, dt: 0.1)
+        #expect(!ok && progress.stepIndex == 2)
+        ok = progress.observeSpeed(faster: true, slower: false, moved: true, dt: 0.4)
+        #expect(ok && progress.stepIndex == 3)
+    }
+
     @Test func skipCompletes() {
         var progress = TutorialProgress(session: .hintMode)
         let ok = progress.handle(.skipped)

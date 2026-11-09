@@ -109,3 +109,47 @@ public final class KeyDeduper: @unchecked Sendable {
         return mutex.withLock { $0[key]?.swallow ?? false }
     }
 }
+
+/// A free-mode chord is seen twice: Karabiner HID, then the event tap.
+/// Each source that passed the key-down must pass its own key-up.
+/// One shared slot lets the first up (Karabiner) consume it, and the tap
+/// then swallows Tab. macOS keeps Tab down, so the next Cmd-Tab is ignored
+/// until some later key-up finally arrives.
+public struct ChordPassthrough: Equatable {
+    private struct Pending: Equatable {
+        var tap = false
+        var kar = false
+    }
+
+    private var pending: [String: Pending] = [:]
+
+    public init() {}
+
+    public mutating func begin(token: String, fromTap: Bool) {
+        var slot = pending[token] ?? Pending()
+        if fromTap { slot.tap = true } else { slot.kar = true }
+        pending[token] = slot
+    }
+
+    /// True when this source passed the matching key-down.
+    public mutating func end(token: String, fromTap: Bool) -> Bool {
+        guard var slot = pending[token] else { return false }
+        if fromTap {
+            guard slot.tap else { return false }
+            slot.tap = false
+        } else {
+            guard slot.kar else { return false }
+            slot.kar = false
+        }
+        if slot.tap || slot.kar {
+            pending[token] = slot
+        } else {
+            pending[token] = nil
+        }
+        return true
+    }
+
+    public mutating func reset() {
+        pending.removeAll()
+    }
+}

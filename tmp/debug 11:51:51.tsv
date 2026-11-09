@@ -1,0 +1,228 @@
+debug	11:51:51.776592+0800	Unmouse	nav tap optionLeft ↓ alone=false mode=idle flags=⌥
+debug	11:51:51.776664+0800	Unmouse	nav tap optionLeft ↓ alone=false mode=idle flags=⌥
+debug	11:51:51.776803+0800	Unmouse	nav held optionLeft=true applied=true now=["optionLeft"]
+debug	11:51:51.776820+0800	Unmouse	nav held optionLeft=true applied=true now=["optionLeft"]
+debug	11:51:51.776858+0800	Unmouse	nav result optionLeft ↓ swallow=false mode=idle
+debug	11:51:51.776871+0800	Unmouse	nav result optionLeft ↓ swallow=false mode=idle
+debug	11:51:51.776891+0800	Unmouse	tap flags option_left down alone=no flags=⌥ → pass (never swallow)
+debug	11:51:51.776906+0800	Unmouse	tap flags option_left down alone=no flags=⌥ → pass (never swallow)
+debug	11:51:51.837871+0800	Unmouse	nav tap optionLeft ↑ alone=true mode=idle flags=-
+debug	11:51:51.837925+0800	Unmouse	nav tap optionLeft ↑ alone=true mode=idle flags=-
+debug	11:51:51.837982+0800	Unmouse	nav held optionLeft=false applied=true now=[]
+debug	11:51:51.837996+0800	Unmouse	nav held optionLeft=false applied=true now=[]
+debug	11:51:51.838017+0800	Unmouse	nav alone-up optionLeft gridTap=false freeTap=true hintTap=false mode=idle
+debug	11:51:51.838031+0800	Unmouse	nav alone-up optionLeft gridTap=false freeTap=true hintTap=false mode=idle
+debug	11:51:51.838054+0800	Unmouse	nav → enterFree
+debug	11:51:51.838064+0800	Unmouse	nav → enterFree
+debug	11:51:51.838078+0800	Unmouse	mode → free fromGrid=false
+debug	11:51:51.838090+0800	Unmouse	mode → free fromGrid=false
+debug	11:51:51.846081+0800	Unmouse	nav result optionLeft ↑ swallow=false mode=free
+debug	11:51:51.846112+0800	Unmouse	nav result optionLeft ↑ swallow=false mode=free
+debug	11:51:51.846172+0800	Unmouse	tap flags option_left up alone=true flags=- → pass (never swallow)
+debug	11:51:51.846188+0800	Unmouse	tap flags option_left up alone=true flags=- → pass (never swallow)
+debug	11:51:52.493119+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=free flags=⌘
+debug	11:51:52.493166+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=free flags=⌘
+debug	11:51:52.493261+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:52.493275+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:52.493319+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=free
+debug	11:51:52.493336+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=free
+debug	11:51:52.493360+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:52.493372+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:52.568089+0800	Unmouse	karabiner tab down t=1976187348155791
+debug	11:51:52.568149+0800	Unmouse	karabiner tab down t=1976187348155791
+debug	11:51:52.568222+0800	Unmouse	nav kar tab ↓ alone=false mode=free flags=⌘
+debug	11:51:52.568237+0800	Unmouse	nav kar tab ↓ alone=false mode=free flags=⌘
+debug	11:51:52.568289+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:52.568304+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:52.569809+0800	Unmouse	nav tap tab ↓ alone=false mode=free flags=⌘
+debug	11:51:52.569848+0800	Unmouse	nav tap tab ↓ alone=false mode=free flags=⌘
+debug	11:51:52.569917+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:52.569930+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:52.569952+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976187349858166
+debug	11:51:52.569962+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976187349858166
+debug	11:51:52.643987+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=free flags=-
+debug	11:51:52.644068+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=free flags=-
+debug	11:51:52.644138+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:52.644150+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:52.644171+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=free
+debug	11:51:52.644182+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=free
+debug	11:51:52.644197+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:52.644208+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:52.659857+0800	Unmouse	karabiner tab up t=1976187439939416
+debug	11:51:52.659904+0800	Unmouse	karabiner tab up t=1976187439939416
+debug	11:51:52.659957+0800	Unmouse	nav kar tab ↑ alone=false mode=free flags=-
+debug	11:51:52.659966+0800	Unmouse	nav kar tab ↑ alone=false mode=free flags=-
+debug	11:51:52.659993+0800	Unmouse	nav chord passthrough tab ↑
+debug	11:51:52.660005+0800	Unmouse	nav chord passthrough tab ↑
+debug	11:51:52.670907+0800	Unmouse	nav tap tab ↑ alone=false mode=free flags=-
+debug	11:51:52.670963+0800	Unmouse	nav tap tab ↑ alone=false mode=free flags=-
+debug	11:51:52.671091+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:52.671106+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:52.671148+0800	Unmouse	nav result tab ↑ swallow=true mode=free
+debug	11:51:52.671159+0800	Unmouse	nav result tab ↑ swallow=true mode=free
+debug	11:51:52.671175+0800	Unmouse	tap keyUp tab flags=- → SWALLOW t=1976187443113750
+debug	11:51:52.671834+0800	Unmouse	tap keyUp tab flags=- → SWALLOW t=1976187443113750
+debug	11:51:53.260910+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=free flags=⌘
+debug	11:51:53.260998+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=free flags=⌘
+debug	11:51:53.261130+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:53.261147+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:53.261188+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=free
+debug	11:51:53.261198+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=free
+debug	11:51:53.261214+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:53.261226+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:53.311724+0800	Unmouse	karabiner tab down t=1976188091760750
+debug	11:51:53.311794+0800	Unmouse	karabiner tab down t=1976188091760750
+debug	11:51:53.311887+0800	Unmouse	nav kar tab ↓ alone=false mode=free flags=⌘
+debug	11:51:53.311904+0800	Unmouse	nav kar tab ↓ alone=false mode=free flags=⌘
+debug	11:51:53.311971+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:53.311985+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:53.313183+0800	Unmouse	nav tap tab ↓ alone=false mode=free flags=⌘
+debug	11:51:53.313235+0800	Unmouse	nav tap tab ↓ alone=false mode=free flags=⌘
+debug	11:51:53.313335+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:53.313350+0800	Unmouse	nav chord passthrough tab ↓
+debug	11:51:53.313373+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976188093150291
+debug	11:51:53.313384+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976188093150291
+debug	11:51:53.361530+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=free flags=-
+debug	11:51:53.361597+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=free flags=-
+debug	11:51:53.361699+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:53.361716+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:53.361736+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=free
+debug	11:51:53.361747+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=free
+debug	11:51:53.361769+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:53.361785+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:53.394264+0800	Unmouse	karabiner tab up t=1976188174298333
+debug	11:51:53.394321+0800	Unmouse	karabiner tab up t=1976188174298333
+debug	11:51:53.394393+0800	Unmouse	nav kar tab ↑ alone=false mode=free flags=-
+debug	11:51:53.394402+0800	Unmouse	nav kar tab ↑ alone=false mode=free flags=-
+debug	11:51:53.394437+0800	Unmouse	nav chord passthrough tab ↑
+debug	11:51:53.394443+0800	Unmouse	nav chord passthrough tab ↑
+debug	11:51:53.395086+0800	Unmouse	nav tap tab ↑ alone=false mode=free flags=-
+debug	11:51:53.395127+0800	Unmouse	nav tap tab ↑ alone=false mode=free flags=-
+debug	11:51:53.395210+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:53.395224+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:53.395256+0800	Unmouse	nav result tab ↑ swallow=true mode=free
+debug	11:51:53.395270+0800	Unmouse	nav result tab ↑ swallow=true mode=free
+debug	11:51:53.395291+0800	Unmouse	tap keyUp tab flags=- → SWALLOW t=1976188175051916
+debug	11:51:53.395303+0800	Unmouse	tap keyUp tab flags=- → SWALLOW t=1976188175051916
+debug	11:51:55.380598+0800	Unmouse	nav tap optionLeft ↓ alone=false mode=free flags=⌥
+debug	11:51:55.380645+0800	Unmouse	nav tap optionLeft ↓ alone=false mode=free flags=⌥
+debug	11:51:55.380816+0800	Unmouse	nav held optionLeft=true applied=true now=["optionLeft"]
+debug	11:51:55.380840+0800	Unmouse	nav held optionLeft=true applied=true now=["optionLeft"]
+debug	11:51:55.380887+0800	Unmouse	nav result optionLeft ↓ swallow=false mode=free
+debug	11:51:55.380899+0800	Unmouse	nav result optionLeft ↓ swallow=false mode=free
+debug	11:51:55.380918+0800	Unmouse	tap flags option_left down alone=no flags=⌥ → pass (never swallow)
+debug	11:51:55.380932+0800	Unmouse	tap flags option_left down alone=no flags=⌥ → pass (never swallow)
+debug	11:51:55.470881+0800	Unmouse	nav tap optionLeft ↑ alone=true mode=free flags=-
+debug	11:51:55.470932+0800	Unmouse	nav tap optionLeft ↑ alone=true mode=free flags=-
+debug	11:51:55.470999+0800	Unmouse	nav held optionLeft=false applied=true now=[]
+debug	11:51:55.471013+0800	Unmouse	nav held optionLeft=false applied=true now=[]
+debug	11:51:55.471031+0800	Unmouse	nav alone-up optionLeft gridTap=false freeTap=true hintTap=false mode=free
+debug	11:51:55.471045+0800	Unmouse	nav alone-up optionLeft gridTap=false freeTap=true hintTap=false mode=free
+debug	11:51:55.471062+0800	Unmouse	nav → exitToIdle
+debug	11:51:55.471072+0800	Unmouse	nav → exitToIdle
+debug	11:51:55.471087+0800	Unmouse	mode → idle keepDrag=false
+debug	11:51:55.471097+0800	Unmouse	mode → idle keepDrag=false
+debug	11:51:55.472332+0800	Unmouse	nav result optionLeft ↑ swallow=false mode=idle
+debug	11:51:55.472373+0800	Unmouse	nav result optionLeft ↑ swallow=false mode=idle
+debug	11:51:55.472462+0800	Unmouse	tap flags option_left up alone=true flags=- → pass (never swallow)
+debug	11:51:55.472492+0800	Unmouse	tap flags option_left up alone=true flags=- → pass (never swallow)
+debug	11:51:56.163441+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.163501+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.163621+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:56.163639+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:56.163667+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=idle
+debug	11:51:56.163680+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=idle
+debug	11:51:56.163697+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:56.163717+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:56.331082+0800	Unmouse	karabiner tab down t=1976191111010666
+debug	11:51:56.331150+0800	Unmouse	karabiner tab down t=1976191111010666
+debug	11:51:56.331233+0800	Unmouse	nav kar tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.331248+0800	Unmouse	nav kar tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.331340+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:56.331357+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:56.331410+0800	Unmouse	nav result tab ↓ swallow=false mode=idle
+debug	11:51:56.331423+0800	Unmouse	nav result tab ↓ swallow=false mode=idle
+debug	11:51:56.337264+0800	Unmouse	nav tap tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.337354+0800	Unmouse	nav tap tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:56.337488+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:56.337524+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:56.337549+0800	Unmouse	nav dedupe skip tab ↓ swallow=false
+debug	11:51:56.337564+0800	Unmouse	nav dedupe skip tab ↓ swallow=false
+debug	11:51:56.337587+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976191117105500
+debug	11:51:56.337601+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976191117105500
+debug	11:51:56.420974+0800	Unmouse	karabiner tab up t=1976191201032083
+debug	11:51:56.421030+0800	Unmouse	karabiner tab up t=1976191201032083
+debug	11:51:56.421092+0800	Unmouse	nav kar tab ↑ alone=false mode=idle flags=⌘
+debug	11:51:56.421104+0800	Unmouse	nav kar tab ↑ alone=false mode=idle flags=⌘
+debug	11:51:56.421161+0800	Unmouse	nav held tab=false applied=true now=["commandLeft"]
+debug	11:51:56.421176+0800	Unmouse	nav held tab=false applied=true now=["commandLeft"]
+debug	11:51:56.421206+0800	Unmouse	nav result tab ↑ swallow=false mode=idle
+debug	11:51:56.421217+0800	Unmouse	nav result tab ↑ swallow=false mode=idle
+debug	11:51:56.421813+0800	Unmouse	nav tap tab ↑ alone=false mode=idle flags=⌘
+debug	11:51:56.421849+0800	Unmouse	nav tap tab ↑ alone=false mode=idle flags=⌘
+debug	11:51:56.421937+0800	Unmouse	nav held tab=false applied=true now=["commandLeft"]
+debug	11:51:56.421956+0800	Unmouse	nav held tab=false applied=true now=["commandLeft"]
+debug	11:51:56.421976+0800	Unmouse	nav dedupe skip tab ↑ swallow=false
+debug	11:51:56.421987+0800	Unmouse	nav dedupe skip tab ↑ swallow=false
+debug	11:51:56.422007+0800	Unmouse	tap keyUp tab flags=⌘ → pass t=1976191201778250
+debug	11:51:56.422053+0800	Unmouse	tap keyUp tab flags=⌘ → pass t=1976191201778250
+debug	11:51:56.444705+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=idle flags=-
+debug	11:51:56.444771+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=idle flags=-
+debug	11:51:56.444864+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:56.444880+0800	Unmouse	nav held commandLeft=false applied=true now=[]
+debug	11:51:56.444906+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=idle
+debug	11:51:56.444920+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=idle
+debug	11:51:56.444936+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:56.444950+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:57.852891+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.852943+0800	Unmouse	nav tap commandLeft ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.853046+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:57.853061+0800	Unmouse	nav held commandLeft=true applied=true now=["commandLeft"]
+debug	11:51:57.853086+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=idle
+debug	11:51:57.853096+0800	Unmouse	nav result commandLeft ↓ swallow=false mode=idle
+debug	11:51:57.853113+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:57.853127+0800	Unmouse	tap flags command_left down alone=no flags=⌘ → pass (never swallow)
+debug	11:51:57.903175+0800	Unmouse	karabiner tab down t=1976192683195625
+debug	11:51:57.903244+0800	Unmouse	karabiner tab down t=1976192683195625
+debug	11:51:57.903336+0800	Unmouse	nav kar tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.903362+0800	Unmouse	nav kar tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.903444+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:57.903471+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:57.903527+0800	Unmouse	nav result tab ↓ swallow=false mode=idle
+debug	11:51:57.903554+0800	Unmouse	nav result tab ↓ swallow=false mode=idle
+debug	11:51:57.904287+0800	Unmouse	nav tap tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.904309+0800	Unmouse	nav tap tab ↓ alone=false mode=idle flags=⌘
+debug	11:51:57.904357+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:57.904370+0800	Unmouse	nav held tab=true applied=true now=["commandLeft", "tab"]
+debug	11:51:57.904386+0800	Unmouse	nav dedupe skip tab ↓ swallow=false
+debug	11:51:57.904397+0800	Unmouse	nav dedupe skip tab ↓ swallow=false
+debug	11:51:57.904416+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976192684307250
+debug	11:51:57.904428+0800	Unmouse	tap keyDown tab flags=⌘ → pass t=1976192684307250
+debug	11:51:57.954760+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=idle flags=-
+debug	11:51:57.954811+0800	Unmouse	nav tap commandLeft ↑ alone=false mode=idle flags=-
+debug	11:51:57.954889+0800	Unmouse	nav held commandLeft=false applied=true now=["tab"]
+debug	11:51:57.954902+0800	Unmouse	nav held commandLeft=false applied=true now=["tab"]
+debug	11:51:57.954919+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=idle
+debug	11:51:57.954929+0800	Unmouse	nav result commandLeft ↑ swallow=false mode=idle
+debug	11:51:57.954945+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:57.954957+0800	Unmouse	tap flags command_left up alone=false flags=- → pass (never swallow)
+debug	11:51:57.986459+0800	Unmouse	karabiner tab up t=1976192766461250
+debug	11:51:57.986521+0800	Unmouse	karabiner tab up t=1976192766461250
+debug	11:51:57.986608+0800	Unmouse	nav kar tab ↑ alone=false mode=idle flags=-
+debug	11:51:57.986617+0800	Unmouse	nav kar tab ↑ alone=false mode=idle flags=-
+debug	11:51:57.986639+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:57.986646+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:57.986666+0800	Unmouse	nav result tab ↑ swallow=false mode=idle
+debug	11:51:57.986712+0800	Unmouse	nav result tab ↑ swallow=false mode=idle
+debug	11:51:57.991420+0800	Unmouse	nav tap tab ↑ alone=false mode=idle flags=-
+debug	11:51:57.991476+0800	Unmouse	nav tap tab ↑ alone=false mode=idle flags=-
+debug	11:51:57.991547+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:57.991560+0800	Unmouse	nav held tab=false applied=true now=[]
+debug	11:51:57.991581+0800	Unmouse	nav dedupe skip tab ↑ swallow=false
+debug	11:51:57.991594+0800	Unmouse	nav dedupe skip tab ↑ swallow=false
+debug	11:51:57.992258+0800	Unmouse	tap keyUp tab flags=- → pass t=1976192770523625
+debug	11:51:57.992337+0800	Unmouse	tap keyUp tab flags=- → pass t=1976192770523625
+debug	11:52:00.795152+0800	Unmouse	mouseDown button=1
+debug	11:52:00.795202+0800	Unmouse	mouseDown button=1
+debug	11:52:00.795243+0800	Unmouse	nav mouseDown → endFreeModeIfNeeded mode=idle
+debug	11:52:00.795254+0800	Unmouse	nav mouseDown → endFreeModeIfNeeded mode=idle

@@ -147,8 +147,8 @@ public struct TutorialProgress: Equatable, Sendable {
     public static let speedDemoSeconds: TimeInterval = 1
     /// Directions seen for the current all-of-them step (steer or scroll).
     private var directions: Set<MoveDirection> = []
-    /// Movement time on the current Z or X step. Resets if the modifier or the move stops.
-    private var speedMove: TimeInterval = 0
+    /// Movement time on the current Z or X step.
+    private var speedClock = SpeedDemoClock()
     /// The aim-then-act cell step shows the Option instruction up front, then waits for both actions.
     private var cellChosen = false
 
@@ -194,7 +194,7 @@ public struct TutorialProgress: Equatable, Sendable {
         }
         directions.removeAll()
         cellChosen = false
-        speedMove = 0
+        speedClock = .init()
         stepIndex += 1
         if stepIndex >= steps.count {
             completed = true
@@ -203,7 +203,7 @@ public struct TutorialProgress: Equatable, Sendable {
     }
 
     /// Credit a free-mode frame toward the Z or X step.
-    /// Key-down with no movement does not count. The clock resets when the move or the modifier stops.
+    /// Key-down with no movement does not count. A dropped frame keeps the credit; a real release does not.
     @discardableResult
     public mutating func observeSpeed(faster: Bool, slower: Bool, moved: Bool, dt: TimeInterval) -> Bool {
         guard !completed, let step = current else { return false }
@@ -212,16 +212,43 @@ public struct TutorialProgress: Equatable, Sendable {
         case .heldFaster: active = faster && moved
         case .heldSlower: active = slower && moved
         default:
-            speedMove = 0
+            speedClock = .init()
             return false
         }
-        guard active else {
-            speedMove = 0
-            return false
-        }
-        let before = speedMove
-        speedMove += dt
-        guard before < Self.speedDemoSeconds, speedMove >= Self.speedDemoSeconds else { return false }
+        guard speedClock.advance(active: active, dt: dt, goal: Self.speedDemoSeconds) else { return false }
         return handle(step.required)
+    }
+}
+
+/// Active time for the Z/X tutorial step.
+///
+/// ponytail: HID and the event tap drop a held key for a frame. Zeroing on that
+/// frame meant Z sped the pointer and the step never reached 1s. Idle under `gap`
+/// keeps the credit. A longer release still starts over. Upgrade path is a
+/// keyboard report that does not drop held keys.
+public struct SpeedDemoClock: Equatable, Sendable {
+    public var held: TimeInterval = 0
+    private var idle: TimeInterval = 0
+    public static let gap: TimeInterval = 0.25
+
+    public init() {}
+
+    /// True once `goal` of active time has accumulated.
+    public mutating func advance(active: Bool, dt: TimeInterval, goal: TimeInterval) -> Bool {
+        if !active {
+            idle += dt
+            if idle >= Self.gap {
+                held = 0
+                idle = 0
+            }
+            return false
+        }
+        idle = 0
+        let before = held
+        held += dt
+        guard before < goal, held >= goal else { return false }
+        held = 0
+        idle = 0
+        return true
     }
 }

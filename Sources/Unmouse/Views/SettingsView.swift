@@ -290,7 +290,7 @@ struct SettingsView: View {
         }
         Section("Shortcuts") {
             bind("Back", gridBind(\.back), hint: "Undoes one step: clears a selected cell, then one typed character, then one nested level.", conflicts: overlapsGridChars(model.config.bindings.grid.back))
-            bind("Left click", gridBind(\.leftClick), hint: "Clicks the selected rectangle and leaves the grid. Press it again within the system double-click time to double-click. A held drag is released there instead of a new click.", conflicts: overlapsGridChars(model.config.bindings.grid.leftClick))
+            bind("Left click", gridBind(\.leftClick), hint: "Clicks the selected rectangle and leaves the grid. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released there instead of a new click.", conflicts: overlapsGridChars(model.config.bindings.grid.leftClick))
             bind("Right click", gridBind(\.rightClick), hint: "With a cell selected, moves there, right-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.rightClick))
             bind("Middle click", gridBind(\.middleClick), hint: "With a cell selected, moves there, middle-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.middleClick))
             bind("Move only", gridBind(\.moveOnly), hint: "Moves the pointer to the selected cell and leaves without clicking.", conflicts: overlapsGridChars(model.config.bindings.grid.moveOnly))
@@ -396,7 +396,7 @@ struct SettingsView: View {
             bind("Scroll left", freeBind(\.scrollLeft))
             bind("Scroll right", freeBind(\.scrollRight))
             bind("Toggle drag", freeBind(\.toggleDrag), hint: "Presses the left button and holds it, so the pointer drags. Press again to release.")
-            bind("Left click", freeBind(\.leftClick), hint: "Left-clicks and stays in free mode. Press it again within the system double-click time to double-click. A held drag is released instead of a new click.")
+            bind("Left click", freeBind(\.leftClick), hint: "Left-clicks and stays in free mode. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released instead of a new click.")
             bind("Right click", freeBind(\.rightClick), hint: "Right-clicks and stays in free mode.")
             bind("Middle click", freeBind(\.middleClick), hint: "Middle-clicks and stays in free mode.")
             bind("Cancel", freeBind(\.cancel), hint: "Leaves free mode. A held drag is released first.")
@@ -418,7 +418,7 @@ struct SettingsView: View {
             HexColorPicker(title: "Line", hint: "Border of each hint bubble.", hex: colorHex(\.hintLine), onChange: commit)
         }
         Section("Shortcuts") {
-            bind("Left click", hintBind(\.leftClick), hint: "On an exact label match, moves to that control, left-clicks, and leaves hint mode. Press it again within the system double-click time to double-click.")
+            bind("Left click", hintBind(\.leftClick), hint: "On an exact label match, moves to that control, left-clicks, and leaves hint mode. Press it again within the system double-click time to double-click, and once more to triple-click.")
             bind("Right click", hintBind(\.rightClick), hint: "On an exact label match, moves there, right-clicks, and leaves hint mode.")
             bind("Move no action", hintBind(\.moveNoAction), hint: "On an exact label match, moves the pointer onto that control and leaves without clicking.")
             bind("To free", hintBind(\.toFree), hint: "On an exact label match, moves onto that control and switches into free mode so you can nudge or click from there.")

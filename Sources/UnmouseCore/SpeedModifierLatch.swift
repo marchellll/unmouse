@@ -2,12 +2,12 @@ import Foundation
 
 /// Hold state for free-mode faster/slower.
 ///
-/// Arrow-key and scroll-key reports drop other held keys, so Z/X get a key-up
+/// Move-key and scroll-key reports drop other held keys, so Z/X get a key-up
 /// while that key is still down. That up often arrives before the other key's
-/// own key-down. Letter move chords do not do this. The release is held for
-/// `graceNanos`, and longer while an arrow or scroll key stays down.
+/// own key-down. The release is held for `graceNanos`, and longer while a move
+/// or scroll key stays down.
 ///
-/// ponytail: a real Z release during an arrow or scroll hold stays active until
+/// ponytail: a real Z release during a move or scroll hold stays active until
 /// that key is up and HID agrees Z/X is up. HID still down cancels the pending
 /// release. Upgrade path is the physical keyboard report.
 public struct SpeedModifierLatch: Sendable {

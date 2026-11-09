@@ -53,4 +53,28 @@ struct HeldKeysTests {
         #expect(deduper.shouldHandle(token: "escape", down: true, nowNanos: 100_000_000))
         #expect(!deduper.swallowed(token: "escape", down: true))
     }
+
+    @Test func chordUpFromKarabinerDoesNotEatTheTapUp() {
+        var pass = ChordPassthrough()
+        pass.begin(token: "tab", fromTap: false)
+        pass.begin(token: "tab", fromTap: true)
+        let karUp = pass.end(token: "tab", fromTap: false)
+        let tapUp = pass.end(token: "tab", fromTap: true)
+        let extra = pass.end(token: "tab", fromTap: true)
+        #expect(karUp)
+        #expect(tapUp)
+        #expect(!extra)
+    }
+
+    @Test func chordUpOnlyMatchesTheSourceThatWentDown() {
+        var pass = ChordPassthrough()
+        pass.begin(token: "tab", fromTap: true)
+        pass.begin(token: "tab", fromTap: true)
+        let karUp = pass.end(token: "tab", fromTap: false)
+        let tapUp = pass.end(token: "tab", fromTap: true)
+        let extra = pass.end(token: "tab", fromTap: true)
+        #expect(!karUp)
+        #expect(tapUp)
+        #expect(!extra)
+    }
 }
