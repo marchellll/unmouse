@@ -1,10 +1,10 @@
 # Release
 
-`scripts/release.sh` reads `CFBundleShortVersionString` in `Support/Info.plist`. When that version is already tagged, it bumps the patch number until the tag is free, then increments `CFBundleVersion`. It builds a release binary, wraps it as `Unmouse.app`, signs it, and writes `dist/Unmouse-<version>.zip`. With a Developer ID Application certificate and a notarytool keychain profile, it notarizes and staples that app, then commits the plist, tags `v<version>`, and pushes the tag.
+`scripts/release.sh` reads `CFBundleShortVersionString` in `Support/Info.plist`. When that version is already tagged, it bumps the patch number until the tag is free, then increments `CFBundleVersion`. It builds a release binary, wraps it as `Unmouse.app`, signs it, and writes `dist/Unmouse-<version>.dmg`. The disk image holds `Unmouse.app` and an `Applications` link for drag-to-install. With a Developer ID Application certificate and a notarytool keychain profile, it signs, notarizes, and staples the disk image, then commits the plist, tags `v<version>`, and pushes the tag.
 
 ## One-time setup
 
-1. Install a **Developer ID Application** certificate in the login keychain. An Apple Development certificate can build a zip, and the script will say it is local-only and skip notarization.
+1. Install a **Developer ID Application** certificate in the login keychain. An Apple Development certificate can build a disk image, and the script will say it is local-only and skip notarization.
 2. Store notary credentials in the keychain. The profile name defaults to `notarytool`.
 
 ```sh
@@ -40,10 +40,12 @@ swift test --package-path Packages/BoundaryLabeling
 ./scripts/release.sh
 ```
 
-With the plist at `0.1.0` and tag `v0.1.0` already there, this ships `0.1.1`. Set `CFBundleShortVersionString` to a new minor or major first when that is the version to ship; the script keeps it when that tag does not exist yet. Output is `dist/Unmouse-<version>.zip`, next to `dist/Unmouse.app`.
+With the plist at `0.1.0` and tag `v0.1.0` already there, this ships `0.1.1`. Set `CFBundleShortVersionString` to a new minor or major first when that is the version to ship; the script keeps it when that tag does not exist yet. Output is `dist/Unmouse-<version>.dmg`, next to `dist/Unmouse.app`.
 
 It checks the notary profile before building. After a successful staple and `spctl` assessment it writes the version into `Support/Info.plist`, commits that file as `release: v<version>`, pushes `HEAD`, tags `v<version>`, and pushes the tag to `origin`. A missing profile, a failed notarization, or a failed assessment leaves `Support/Info.plist` unchanged.
 
 3. Open `dist/Unmouse.app`, grant Accessibility and Input Monitoring for that signature, and confirm grid, free, and hint each open.
 
-An Apple Development certificate still produces the zip. That path leaves `Support/Info.plist` and git unchanged.
+4. Update [`Casks/unmouse.rb`](https://github.com/marchellll/homebrew-unmouse) in the Homebrew tap. Set `version`, `sha256` from `shasum -a 256 dist/Unmouse-<version>.dmg`, and the asset suffix to `.dmg`. Attach the disk image to the GitHub Release for the tag.
+
+An Apple Development certificate still produces the disk image. That path leaves `Support/Info.plist` and git unchanged.

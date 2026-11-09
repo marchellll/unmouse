@@ -6,7 +6,16 @@ macOS 27. [MIT](LICENSE).
 
 ## Install
 
-Download `Unmouse-<version>.zip` from [Releases](https://github.com/marchellll/unmouse/releases), unzip, and move `Unmouse.app` to `/Applications`.
+Download `Unmouse-<version>.dmg` from [Releases](https://github.com/marchellll/unmouse/releases), open it, and drag `Unmouse.app` to `Applications`.
+
+Or with Homebrew:
+
+```sh
+brew trust marchellll/unmouse
+brew install --cask marchellll/unmouse/unmouse
+```
+
+The current cask installs `Unmouse-0.1.0.zip`, signed with an Apple Development certificate. Other Macs need a notarized build before Gatekeeper will open it.
 
 Or build a signed copy from source. You need Swift 6.4 and an Apple Development certificate in the keychain.
 
@@ -60,4 +69,4 @@ Logs go to Console under subsystem `xyz.marchell.unmouse`, category `app`. The l
 
 ## Development
 
-[Contributing](docs/contributing.md) covers the build. [Architecture](docs/architecture.md) is the map of the code. [Release](docs/release.md) covers signing, notarization, and the zip.
+[Contributing](docs/contributing.md) covers the build. [Architecture](docs/architecture.md) is the map of the code. [Release](docs/release.md) covers signing, notarization, and the disk image.

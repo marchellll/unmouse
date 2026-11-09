@@ -160,7 +160,7 @@ else
     exit 1
   fi
   echo "No Developer ID Application identity in the keychain."
-  echo "Falling back to Apple Development (local zip only; leaves git unchanged)."
+  echo "Falling back to Apple Development (local disk image only; leaves git unchanged)."
   IDENTITY="$IDENTITY_DEV"
   NOTARIZE=0
 fi
@@ -191,8 +191,18 @@ rm -f "$tags_file"
 TAG="v$VERSION"
 DIST="$ROOT/dist"
 APP="$DIST/Unmouse.app"
-ZIP="$DIST/Unmouse-$VERSION.zip"
+DMG="$DIST/Unmouse-$VERSION.dmg"
 echo "Release $TAG"
+
+# App next to an /Applications link, so the mounted disk image shows drag-to-install.
+make_dmg() {
+  local stage
+  stage="$(mktemp -d)"
+  ditto "$APP" "$stage/Unmouse.app"
+  ln -s /Applications "$stage/Applications"
+  hdiutil create -quiet -volname "Unmouse $VERSION" -srcfolder "$stage" -ov -format UDZO "$DMG"
+  rm -rf "$stage"
+}
 
 if [[ "$NOTARIZE" -eq 1 ]]; then
   STAGED_PLIST="$(mktemp)"
@@ -225,21 +235,21 @@ fi
 codesign --force --deep --options runtime --sign "$IDENTITY" "$APP"
 
 if [[ "$NOTARIZE" -eq 1 ]]; then
-  ditto -c -k --keepParent "$APP" "$ZIP"
-  xcrun notarytool submit "$ZIP" --keychain-profile "$NOTARY_PROFILE" --wait
-  xcrun stapler staple "$APP"
-  rm -f "$ZIP"
-  ditto -c -k --keepParent "$APP" "$ZIP"
-  xcrun stapler validate "$APP"
-  spctl -a -vv "$APP"
+  make_dmg
+  codesign --force --sign "$IDENTITY" "$DMG"
+  xcrun notarytool submit "$DMG" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun stapler staple "$DMG"
+  xcrun stapler validate "$DMG"
+  spctl -a -t open --context context:primary-signature -vv "$DMG"
   cp "$STAGED_PLIST" "$PLIST"
   git add -- "$PLIST"
   git commit -m "release: $TAG"
   git push origin HEAD
   git tag "$TAG"
   git push origin "$TAG"
-  echo "Released $TAG ($ZIP)"
+  shasum -a 256 "$DMG"
+  echo "Released $TAG ($DMG)"
 else
-  ditto -c -k --keepParent "$APP" "$ZIP"
-  echo "Built $ZIP (Development signature; not notarized)"
+  make_dmg
+  echo "Built $DMG (Development signature; not notarized)"
 fi
