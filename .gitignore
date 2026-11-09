@@ -29,3 +29,6 @@ notarize.env
 signing.env
 *.keychain
 *.keychain-db
+
+
+tmp/
