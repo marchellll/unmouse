@@ -15,8 +15,6 @@ brew trust marchellll/unmouse
 brew install --cask marchellll/unmouse/unmouse
 ```
 
-The current cask installs `Unmouse-0.1.0.zip`, signed with an Apple Development certificate. Other Macs need a notarized build before Gatekeeper will open it.
-
 Or build a signed copy from source. You need Swift 6.4 and an Apple Development certificate in the keychain.
 
 ```sh
@@ -59,7 +57,7 @@ The menu-bar icon opens Settings and Quit. **Coach** lists what the current mode
 
 Settings write `~/Library/Application Support/unmouse/config.toml`. Editing that file reloads it. The first launch copies the bundled default and sizes the grid to the display under the pointer.
 
-**Settings → Presets** replaces that file with a bundled layout: `default`, `azerty`, `colemak`, `colemak-dh`, `dvorak`, or `workman`.
+**Settings → Presets** replaces that file with a bundled layout: `default.config`, `azerty.example.config`, `colemak.example.config`, `colemak-dh.example.config`, `dvorak.example.config`, or `workman.example.config`.
 
 Shortcut syntax is in the comments at the bottom of [`configs-example/default.config.toml`](configs-example/default.config.toml). One key, or modifiers plus one key joined by `+`. A value can be a list of shortcuts.
 
