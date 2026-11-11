@@ -62,17 +62,21 @@ public struct InputConfig: Codable, Sendable, Equatable {
     public var tapMaxMs: Int
     /// Exit grid / free / hint after this many seconds with no input. `0` disables.
     public var modeTimeoutS: Double
+    /// Move the pointer to the center of a newly focused window when it sits outside that window.
+    public var centerOnFocus: Bool
 
     enum CodingKeys: String, CodingKey {
         case karabiner
         case tapMaxMs = "tap_max_ms"
         case modeTimeoutS = "mode_timeout_s"
+        case centerOnFocus = "center_on_focus"
     }
 
-    public init(karabiner: Bool = true, tapMaxMs: Int = 200, modeTimeoutS: Double = 10) {
+    public init(karabiner: Bool = true, tapMaxMs: Int = 200, modeTimeoutS: Double = 10, centerOnFocus: Bool = true) {
         self.karabiner = karabiner
         self.tapMaxMs = tapMaxMs
         self.modeTimeoutS = modeTimeoutS
+        self.centerOnFocus = centerOnFocus
     }
 
     public init(from decoder: Decoder) throws {
@@ -87,6 +91,7 @@ public struct InputConfig: Codable, Sendable, Equatable {
         } else {
             modeTimeoutS = 10
         }
+        centerOnFocus = try c.decodeIfPresent(Bool.self, forKey: .centerOnFocus) ?? true
     }
 }
 
@@ -301,9 +306,22 @@ public struct FreeConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Hint settings. `chars` used to live here; labels now use a fixed a–z alphabet.
 public struct HintConfig: Codable, Sendable, Equatable {
-    public var chars: String
-    public init(chars: String = "qwesfghjkl") { self.chars = chars }
+    private enum CodingKeys: String, CodingKey { case chars }
+
+    public init() {}
+
+    public init(from decoder: Decoder) throws {
+        // Legacy configs may still have `chars = "…"` — ignore.
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        _ = try c.decodeIfPresent(String.self, forKey: .chars)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        // No fields written; omit legacy `chars`.
+        _ = encoder.container(keyedBy: CodingKeys.self)
+    }
 }
 
 public struct ColorsConfig: Codable, Sendable, Equatable {

@@ -8,7 +8,6 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
     case cellsExceedCharset(cells: Int, max: Int)
     case duplicateShortcut(mode: String, shortcut: String)
     case gridShortcutOverlapsChars(String)
-    case hintShortcutOverlapsChars(String)
     /// Bare letter as hint left/right click steals that key from typing/search.
     case hintClickStealsTyping(String)
     case parse(String)
@@ -28,8 +27,6 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
             "duplicate shortcut \(shortcut) in \(mode)"
         case .gridShortcutOverlapsChars(let s):
             "grid shortcut \(s) duplicates a grid char"
-        case .hintShortcutOverlapsChars(let s):
-            "hint shortcut \(s) overlaps hint chars"
         case .hintClickStealsTyping(let s):
             "hint click \(s) is a bare letter — use shift+space (or similar) so letters type/search"
         case .parse(let m):
@@ -115,33 +112,14 @@ public enum ConfigValidator {
             b.hint.cancel, b.hint.back,
         ])
 
-        let hintChars = Set(config.hint.chars.lowercased())
+        // Hint mode types a–z for codes/search. Bare letter clicks steal typing.
         for raw in b.hint.leftClick + b.hint.rightClick + b.hint.toFree {
-            if let sc = try? ShortcutParser.parse(raw),
-               sc.modifiers.isEmpty,
-               let c = sc.key.character,
-               hintChars.contains(c)
-            {
-                errors.append(.hintShortcutOverlapsChars(raw))
-            }
-        }
-        // Hint mode types any letter for codes/search. Free/grid's bare `a` right-click
-        // must not be copied here or Space-less `a` right-clicks the selected row and exits.
-        for raw in b.hint.leftClick + b.hint.rightClick {
             if let sc = try? ShortcutParser.parse(raw),
                sc.modifiers.isEmpty,
                case .letter = sc.key
             {
                 errors.append(.hintClickStealsTyping(raw))
             }
-        }
-
-        if config.hint.chars.isEmpty {
-            errors.append(.emptyChars)
-        }
-        let hc = Array(config.hint.chars)
-        if Set(hc).count != hc.count {
-            errors.append(.duplicateChars)
         }
 
         return errors

@@ -82,20 +82,21 @@ struct ConfigTests {
         #expect(!clear.contains { if case .gridShortcutOverlapsChars = $0 { true } else { false } })
     }
 
-    @Test func hintShortcutOverlap() {
-        var c = AppConfig.default
-        c.hint.chars = "asd"
-        c.bindings.hint.leftClick = ["a"]
-        #expect(ConfigValidator.validate(c).contains(.hintShortcutOverlapsChars("a")))
-    }
-
     @Test func hintBareLetterClickWarns() {
         var c = AppConfig.default
-        c.hint.chars = "qwerty" // no `a` — overlap check stays quiet
         c.bindings.hint.rightClick = ["a"]
         let errors = ConfigValidator.validate(c)
         #expect(errors.contains(.hintClickStealsTyping("a")))
         #expect(errors.contains { !$0.blocksApply && $0 == .hintClickStealsTyping("a") })
+    }
+
+    @Test func legacyHintCharsIgnored() throws {
+        var base = try ConfigIO.encode(AppConfig.default)
+        base += "\n[hint]\nchars = \"qwfgjluy;r\"\n"
+        let decoded = try ConfigIO.decode(from: base)
+        #expect(decoded.hint == HintConfig())
+        let roundTrip = try ConfigIO.encode(decoded)
+        #expect(!roundTrip.contains("[hint]"))
     }
 
     @Test func scrollReverseRoundTrips() throws {
@@ -105,6 +106,18 @@ struct ConfigTests {
         let decoded = try ConfigIO.decode(from: try ConfigIO.encode(config))
         #expect(decoded.free.scrollReverseX)
         #expect(decoded.free.scrollReverseY)
+    }
+
+    @Test func centerOnFocusDefaultsOn() throws {
+        let text = try ConfigIO.encode(AppConfig.default)
+            .replacingOccurrences(of: "center_on_focus", with: "ignored_center")
+        let decoded = try ConfigIO.decode(from: text)
+        #expect(decoded.input.centerOnFocus)
+
+        var config = AppConfig.default
+        config.input.centerOnFocus = false
+        let roundTrip = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(!roundTrip.input.centerOnFocus)
     }
 
     @Test func exitOnActionDefaultsOff() throws {

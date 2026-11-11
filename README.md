@@ -30,6 +30,8 @@ Leave both granted. Unmouse cannot move the pointer or see those keys without th
 
 Tap a mode key. Hold it longer than the alone-tap limit (200 ms by default) and the key goes to the app underneath instead. Grid, free, and hint leave themselves after 10 seconds without a key. Change either limit in Settings.
 
+Focusing a window moves the pointer to that window's center when the pointer is outside it. A click inside the window stays put, and grid, free, and hint do not move it. **Center on focus** in Settings turns this off (`center_on_focus` in the config).
+
 | | Open | Then |
 |---|---|---|
 | Grid | Tap left ⌘ | Type a cell label. Space or Return left-clicks. `a` right-clicks, `s` middle-clicks, `d` moves without clicking. Delete steps back, Tab moves to the next screen, Escape cancels. |

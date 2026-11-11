@@ -2,6 +2,7 @@
 karabiner = true       # use the virtual keyboard when it is present, including after a later install
 tap_max_ms = 200       # max hold (ms) that still counts as an alone-tap for grid/free mode
 mode_timeout_s = 10     # exit grid/free/hint after N seconds idle; 0 = never
+center_on_focus = true  # move the pointer to the center of a newly focused window when it is outside that window
 
 [log]
 level = "none"         # none | error | warn | info | debug
@@ -38,8 +39,6 @@ halo_attention = "pulse"   # none | pulse | ping | breathe
 halo_attention_period = 1.1  # seconds
 halo_attention_scale = 2.4
 halo_offset = [15.0, 10.0]  # cartesian points from the pointer; +x right, +y up
-[hint]
-chars = "qdrwbjfup;"
 
 [colors]
 background = "#00000000"

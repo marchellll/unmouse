@@ -245,7 +245,7 @@ sequenceDiagram
 
 `AccessibilityHintSource` reads the focused app on a background task: clickable roles and the menu bar get yellow labels; static text, nested menus, open windows, and installed apps are search-only. Web areas get `AXManualAccessibility` and a second child read, plus `AXLinkUIElements`. Frames that cover most of the window are dropped. If the focused app is Unmouse itself, the scan walks `NSAccessibility` on the main actor instead.
 
-`HintCoder` ranks targets (default, cancel, buttons, links, other window controls, then menu bar), boosts titles listed in `priority-words.txt`, and slices a mnemonic from the title (`Delete` → `d`, `Cancel` → `ca`, `search menu` → `sm`). Single-character codes stay in the focused window; menu bar items get two-or-more-character codes. Letter actions such as `a` / `s` / `d` stay in grid and free mode so the full `hint.chars` alphabet can label and search. `HintFuzzy` ranks a query with a subsequence score (spaces in the query are dropped); an exact hint code always wins. After three typed characters, the top nine hits get ⌘1–⌘9. `HintLayout` places the yellow bubbles. Space or Return activates the selected row; Shift+Space or Shift+Return right-clicks; alone Option moves there and enters free mode; alone Command opens the grid; Escape cancels.
+`HintCoder` ranks targets (default, cancel, buttons, links, other window controls, then chrome / menu bar), boosts titles listed in `priority-words.txt`, and slices a mnemonic from the title (`Delete` → `d`, `Cancel` → `ca`, `search menu` → `sm`) using a fixed a–z alphabet. Single-character codes stay on real in-window controls; menu bar and traffic lights get two-or-more-character codes. Three-character codes appear only after digraphs are exhausted. `HintFuzzy` ranks a query with a subsequence score (spaces in the query are dropped); an exact hint code always wins. After three typed characters, the top nine hits get ⌘1–⌘9. `HintLayout` places the yellow bubbles. Space or Return activates the selected row; Shift+Space or Shift+Return right-clicks; alone Option moves there and enters free mode; alone Command opens the grid; Escape cancels.
 
 ## The pointer
 
@@ -256,6 +256,8 @@ flowchart LR
     GRID["Grid cells, overlays, hint frames<br/>AppKit, y up"] -->|"CoordinateSpace.appKitToCGEvent"| PC["PointerController<br/>CGEvent, y down"]
     AX["Accessibility frames<br/>CGEvent"] -->|"CoordinateSpace.cgEventToAppKit"| GRID
 ```
+
+`FocusFollow` watches app activation, Space changes, and each app's focused-window notification. On a change, while idle, `NavigationModel` reads the focused window and posts a move to its center when the pointer is outside that window. `input.center_on_focus` (default on) starts and stops the observers. Clicks that land inside the newly focused window are left alone, and grid, free, and hint do not warp.
 
 `NSEvent.mouseLocation` stays on the previous point until the window server applies a move. A click that reads it in that gap lands on the old point and undoes the move. `PointerAim` remembers the point we posted and the system location at that moment, and `PointerController.location` keeps returning the posted point until the system catches up.
 

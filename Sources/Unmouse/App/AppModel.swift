@@ -85,6 +85,7 @@ final class AppModel {
             inputMonitoringOK = nav.startInput()
         }
         nav.updateKarabiner()
+        nav.refreshCenterOnFocus()
     }
 
     func requestAccessibility() {
@@ -263,6 +264,7 @@ final class AppModel {
             UnmouseLog.setLevel(config.log.level)
             nav?.applyBindings(config)
             nav?.updateKarabiner()
+            nav?.setCenterOnFocus(config.input.centerOnFocus)
             overlayController?.refreshAppearance()
         } else if replaceConfig {
             UnmouseLog.error("config invalid: \(configError ?? "")")

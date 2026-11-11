@@ -233,6 +233,7 @@ struct AccessibilityHintSource: HintSource {
 
         if isActionable(el), let f = frame(of: el, primaryHeight: primaryHeight), isHintSized(f, windowFrame: windowFrame) {
             let title = resolveTitle(el)
+            let subrole = stringAttr(el, kAXSubroleAttribute as CFString) ?? ""
             let id = dedupeKey(role: role, title: title, frame: f)
             if seen.insert(id).inserted {
                 // Window AXDefaultButton is resolved separately; title heuristics cover common dialogs.
@@ -246,7 +247,8 @@ struct AccessibilityHintSource: HintSource {
                         action: .click,
                         showsLabel: true,
                         isDefault: lower == "ok" || lower == "yes",
-                        isCancel: lower == "cancel" || lower == "no"
+                        isCancel: lower == "cancel" || lower == "no",
+                        subrole: subrole
                     )
                 )
                 count += 1
@@ -557,6 +559,7 @@ struct AccessibilityHintSource: HintSource {
                     ?? element.accessibilityLabel()
                     ?? element.accessibilityRoleDescription()
                     ?? ""
+                let subrole = element.accessibilitySubrole()?.rawValue ?? ""
                 let id = dedupeKey(role: role, title: title, frame: frame)
                 if seen.insert(id).inserted {
                     results.append(
@@ -566,7 +569,8 @@ struct AccessibilityHintSource: HintSource {
                             frame: frame,
                             role: role,
                             action: .click,
-                            showsLabel: true
+                            showsLabel: true,
+                            subrole: subrole
                         )
                     )
                 }

@@ -58,15 +58,60 @@ struct HintTests {
         let coded = HintCoder.assignCodes(
             targets: [
                 HintTarget(id: "apple", title: "Apple", frame: .zero, role: "AXMenuBarItem"),
-                HintTarget(id: "zoom", title: "Zoom", frame: CGRect(x: 0, y: 80, width: 40, height: 20), role: "AXButton"),
+                HintTarget(id: "add", title: "Add", frame: CGRect(x: 0, y: 80, width: 40, height: 20), role: "AXButton"),
             ],
             chars: "abcdefghijklmnopqrstuvwxyz",
             priorityWords: []
         )
         let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
-        #expect(byID["zoom"] == "z")
+        #expect(byID["add"] == "a")
         #expect(byID["apple"] != "a")
         #expect((byID["apple"]?.count ?? 0) >= 2)
+    }
+
+    @Test func prefersTwoCharOverThreeCharMnemonic() {
+        // "Settings" used to take "set" when "se" was free — digraphs first.
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "settings", title: "Settings", frame: .zero, role: "AXButton"),
+            ],
+            chars: "setxyz",
+            priorityWords: []
+        )
+        #expect((coded.first?.code.count ?? 99) <= 2)
+    }
+
+    @Test func threeCharOnlyAfterDigraphsExhausted() {
+        // 2-letter alphabet → 2 + 4 digraphs = 6 codes before triples.
+        let targets = (0..<8).map {
+            HintTarget(id: "\($0)", title: "Item\($0)", frame: .zero, role: "AXButton")
+        }
+        let coded = HintCoder.assignCodes(targets: targets, chars: "ab", priorityWords: [])
+        let lengths = coded.map(\.code.count)
+        #expect(lengths.filter { $0 <= 2 }.count == 6)
+        #expect(lengths.contains(where: { $0 == 3 }))
+        #expect(!lengths.contains(where: { $0 > 3 }))
+    }
+
+    @Test func trafficLightsAndMenuBarSkipSingles() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "close", title: "Close", frame: .zero, role: "AXButton", subrole: "AXCloseButton"),
+                HintTarget(id: "min", title: "Minimize", frame: .zero, role: "AXButton"),
+                HintTarget(id: "zoom", title: "Zoom", frame: .zero, role: "AXButton", subrole: "AXZoomButton"),
+                HintTarget(id: "file", title: "File", frame: .zero, role: "AXMenuBarItem"),
+                HintTarget(id: "chev", title: "Show", frame: .zero, role: "AXDisclosureTriangle"),
+                HintTarget(id: "copy", title: "Copy", frame: CGRect(x: 0, y: 80, width: 40, height: 20), role: "AXButton"),
+            ],
+            chars: "abcdefghijklmnopqrstuvwxyz",
+            priorityWords: []
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["copy"] == "c")
+        for id in ["close", "min", "zoom", "file", "chev"] {
+            #expect((byID[id]?.count ?? 0) >= 2, "\(id) should not take a single")
+            #expect(byID[id] != "c")
+        }
     }
 
     @Test func typingADoesNotSelectAppleWhenCodeIsL() {

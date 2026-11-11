@@ -33,6 +33,7 @@ final class NavigationModel {
     private let eventTap = EventTapController()
     private let karabiner = KarabinerListener()
     private let displayLink = DisplayLinkDriver()
+    private let focusFollow = FocusFollow()
     private var lastFlags: CGEventFlags = []
     private var consumeFreeExitUp = false
     /// Action key (space, esc, …) whose key-down already ran and left the mode.
@@ -71,6 +72,17 @@ final class NavigationModel {
     func applyBindings(_ config: AppConfig) {
         bindings = BindingTable(bindings: config.bindings)
         eventTap.setMaxTapMilliseconds(UInt64(max(50, config.input.tapMaxMs)))
+    }
+
+    func setCenterOnFocus(_ enabled: Bool) {
+        focusFollow.setEnabled(enabled) { [weak self] in
+            self?.centerOnFocusedWindow()
+        }
+    }
+
+    /// Re-attach after Accessibility is granted. Observers created while untrusted never fire.
+    func refreshCenterOnFocus() {
+        focusFollow.rewatchIfEnabled()
     }
 
     func updateKarabiner() {
@@ -114,6 +126,30 @@ final class NavigationModel {
             if let best, best.frame.intersects(frame) { return best }
         }
         return screenForCursor()
+    }
+
+    /// Pointer to the center of the focused window. Skips a click that is already inside it,
+    /// and skips grid / free / hint so a mode keeps the point it is aiming at.
+    private func centerOnFocusedWindow() {
+        guard mode == .idle, !dragging else { return }
+        guard AXIsProcessTrusted() else { return }
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        guard let frame = Self.focusedWindowAppKitFrame(), frame.width >= 8, frame.height >= 8 else { return }
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        let cursor = CoordinateSpace.cgEventToAppKit(PointerController.location, primaryHeight: primaryH)
+        if frame.contains(cursor) { return }
+        let mid = CGPoint(x: frame.midX, y: frame.midY)
+        let point: CGPoint
+        if NSScreen.screens.contains(where: { $0.frame.contains(mid) }) {
+            point = mid
+        } else {
+            let visible = NSScreen.screens
+                .map { $0.frame.intersection(frame) }
+                .max { $0.width * $0.height < $1.width * $1.height }
+            guard let visible, visible.width >= 8, visible.height >= 8 else { return }
+            point = CGPoint(x: visible.midX, y: visible.midY)
+        }
+        PointerController.move(toAppKit: point)
     }
 
     /// Focused window frame in AppKit screen coords (bottom-left origin).
@@ -829,7 +865,7 @@ final class NavigationModel {
         }
         InputTrace.log("hint load scan done n=\(targets.count) scanMs=\(scanMs)")
         let t1 = DispatchTime.now().uptimeNanoseconds
-        let coded = HintCoder.assignCodes(targets: targets, chars: app.config.hint.chars)
+        let coded = HintCoder.assignCodes(targets: targets)
         let labeled = coded.filter(\.showsLabel).count
         let codeMs = (DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000
         let anchor = hintState.paletteAnchor

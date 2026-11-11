@@ -123,6 +123,12 @@ struct SettingsView: View {
             }
             Toggle("Open at login", isOn: launchAtLoginBinding)
                 .help("Launches Unmouse when you log in.")
+            optionHint(
+                "Center on focus",
+                hint: "When the focused window changes and the pointer is outside it, moves the pointer to that window's center. A click inside the window stays where it landed. Grid, free, and hint keep the pointer where it is."
+            ) {
+                Toggle("", isOn: configBind(\.input.centerOnFocus)).labelsHidden()
+            }
             if let note = model.launchAtLoginNote {
                 Text(note)
                     .font(.caption)
@@ -404,14 +410,6 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var hintPane: some View {
-        Section("Layout") {
-            optionHint(
-                "Chars",
-                hint: "Alphabet for hint labels. A control prefers a letter from its name when that letter is here; otherwise it gets the next free letter, then a two-letter code."
-            ) {
-                trailingField(hintChars)
-            }
-        }
         Section("Colors") {
             HexColorPicker(title: "Fill", hint: "Fill of each hint bubble.", hex: colorHex(\.hintFill), onChange: commit)
             HexColorPicker(title: "Text", hex: colorHex(\.hintText), onChange: commit)
@@ -491,13 +489,6 @@ struct SettingsView: View {
         Binding(
             get: { model.config.free.haloAttention },
             set: { model.config.free.haloAttention = $0; commit() }
-        )
-    }
-
-    private var hintChars: Binding<String> {
-        Binding(
-            get: { model.config.hint.chars },
-            set: { model.config.hint.chars = $0; commit() }
         )
     }
 

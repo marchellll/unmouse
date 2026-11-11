@@ -21,6 +21,8 @@ public struct HintTarget: Equatable, Sendable, Identifiable {
     public var showsLabel: Bool
     public var isDefault: Bool
     public var isCancel: Bool
+    /// AX subrole when known (`AXCloseButton`, …). Used to demote window chrome.
+    public var subrole: String
 
     public init(
         id: String,
@@ -31,7 +33,8 @@ public struct HintTarget: Equatable, Sendable, Identifiable {
         action: HintAction = .click,
         showsLabel: Bool = true,
         isDefault: Bool = false,
-        isCancel: Bool = false
+        isCancel: Bool = false,
+        subrole: String = ""
     ) {
         self.id = id
         self.title = title
@@ -42,6 +45,7 @@ public struct HintTarget: Equatable, Sendable, Identifiable {
         self.showsLabel = showsLabel
         self.isDefault = isDefault
         self.isCancel = isCancel
+        self.subrole = subrole
     }
 }
 
@@ -75,10 +79,13 @@ public enum HintCoder {
     /// Cmd+N appears after this many typed query characters.
     public static let cmdNumberMinQuery = 3
 
-    /// Assign short codes from charset. Rank, then slice the title.
+    /// Fixed label alphabet. Digraphs cover hundreds of controls; no config knob.
+    public static let alphabet = "abcdefghijklmnopqrstuvwxyz"
+
+    /// Assign short codes from the fixed alphabet. Rank, then slice the title.
     public static func assignCodes(
         targets: [HintTarget],
-        chars: String,
+        chars: String = alphabet,
         priorityWords: Set<String> = PriorityWords.load()
     ) -> [HintTarget] {
         let alphabet = Array(chars.lowercased())
@@ -116,19 +123,71 @@ public enum HintCoder {
         }
     }
 
-    /// Lower is better. Focused-window controls beat the menu bar so short codes land in-window.
+    /// Lower is better. Focused-window controls beat menu bar / chrome so short codes land on real UI.
     private static func rank(_ t: HintTarget, priority: Set<String>) -> Int {
+        if isDeprioritized(t) {
+            // Menu bar last; window chrome / chevrons / sliders just above it.
+            let base = t.role == roleMenuBarItem ? 50 : 40
+            return priority.contains(t.title.lowercased()) ? base : base + 5
+        }
         var base: Int
         if t.isDefault { base = 0 }
         else if t.isCancel { base = 1 }
         else if t.role == roleButton { base = 2 }
         else if t.role == "AXLink" { base = 3 }
-        else if t.role == roleMenuBarItem { base = 6 }
-        else { base = 4 }
+        else if t.role == "AXCheckBox" || t.role == "AXRadioButton" || t.role == "AXTab"
+            || t.role == "AXTabButton" || t.role == "AXPopUpButton" || t.role == "AXMenuButton"
+        {
+            base = 3
+        } else { base = 4 }
         let title = t.title.lowercased()
         if priority.contains(title) { return base }
         return base + 10
     }
+
+    /// No single-letter codes: menu bar, traffic lights, disclosure/arrows, sliders, empty chrome.
+    static func isDeprioritized(_ t: HintTarget) -> Bool {
+        if t.role == roleMenuBarItem { return true }
+        if chromeSubroles.contains(t.subrole) { return true }
+        if lowValueRoles.contains(t.role) { return true }
+        return isWindowChromeTitle(t.title)
+    }
+
+    private static let chromeSubroles: Set<String> = [
+        "AXCloseButton", "AXMinimizeButton", "AXZoomButton", "AXFullScreenButton",
+    ]
+
+    private static let lowValueRoles: Set<String> = [
+        "AXDisclosureTriangle",
+        "AXDecrementArrow",
+        "AXIncrementArrow",
+        "AXSlider",
+        "AXColorWell",
+        "AXToolbar",
+        "AXSplitter",
+        "AXGrowArea",
+        "AXBusyIndicator",
+    ]
+
+    /// Traffic-light titles and common AX description forms.
+    static func isWindowChromeTitle(_ title: String) -> Bool {
+        let t = title.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "_", with: " ")
+        if chromeTitles.contains(t) { return true }
+        // "close button", "minimise button", "enter full screen button"
+        if t.hasSuffix(" button") {
+            let stem = String(t.dropLast(" button".count))
+            if chromeTitles.contains(stem) { return true }
+        }
+        return false
+    }
+
+    private static let chromeTitles: Set<String> = [
+        "close", "minimize", "minimise", "zoom", "maximize", "maximise",
+        "full screen", "fullscreen", "enter full screen", "exit full screen",
+        "enter fullscreen", "exit fullscreen",
+    ]
 
     private static func takeCode(
         for target: HintTarget,
@@ -139,14 +198,22 @@ public enum HintCoder {
         let alphaSet = Set(alphabet)
         let words = words(in: target.title, alphabet: alphaSet)
         let titleFlat = String(target.title.lowercased().filter { alphaSet.contains($0) })
-        // Single-char mnemonics stay in the focused window — not File/Edit/View.
+        let deprioritized = isDeprioritized(target)
+        // Single-char mnemonics stay on real in-window controls — not File/Close/chevrons.
         let allowSingle =
-            target.role != roleMenuBarItem
+            !deprioritized
             && (target.isDefault || target.isCancel
                 || target.role == roleButton
                 || target.role == "AXLink"
+                || target.role == "AXCheckBox"
+                || target.role == "AXRadioButton"
+                || target.role == "AXTab"
+                || target.role == "AXTabButton"
+                || target.role == "AXPopUpButton"
+                || target.role == "AXMenuButton"
                 || priority.contains(target.title.lowercased()))
 
+        // Prefer ≤2 chars. 3-char only after every digraph is taken (n² is huge).
         var candidates: [String] = []
         if allowSingle, let first = words.first, let c = first.first {
             candidates.append(String(c))
@@ -155,22 +222,17 @@ public enum HintCoder {
             let initials = String(words.compactMap(\.first).prefix(2))
             if initials.count == 2 { candidates.append(initials) }
         }
-        if let first = words.first {
-            if first.count >= 2 { candidates.append(String(first.prefix(2))) }
-            if first.count >= 3 { candidates.append(String(first.prefix(3))) }
+        if let first = words.first, first.count >= 2 {
+            candidates.append(String(first.prefix(2)))
         }
         if titleFlat.count >= 2 { candidates.append(String(titleFlat.prefix(2))) }
-        if titleFlat.count >= 3 { candidates.append(String(titleFlat.prefix(3))) }
 
-        for candidate in candidates where !candidate.isEmpty {
-            if !used.contains(candidate), candidate.allSatisfy({ alphaSet.contains($0) }) {
-                used.insert(candidate)
-                return candidate
-            }
+        if let hit = claim(from: candidates, alphabet: alphaSet, used: &used) {
+            return hit
         }
 
-        // Leftover singles are for the focused window only — otherwise Apple/File steal `a`/`f`.
-        if target.role != roleMenuBarItem {
+        // Leftover singles stay off deprioritized chrome / menu bar.
+        if !deprioritized {
             for c in alphabet {
                 let s = String(c)
                 if !used.contains(s) {
@@ -186,6 +248,41 @@ public enum HintCoder {
                     used.insert(s)
                     return s
                 }
+            }
+        }
+
+        // Truly exhausted digraphs — mnemonic 3, then leftover triples.
+        var long: [String] = []
+        if let first = words.first, first.count >= 3 {
+            long.append(String(first.prefix(3)))
+        }
+        if titleFlat.count >= 3 { long.append(String(titleFlat.prefix(3))) }
+        if let hit = claim(from: long, alphabet: alphaSet, used: &used) {
+            return hit
+        }
+        for a in alphabet {
+            for b in alphabet {
+                for c in alphabet {
+                    let s = String([a, b, c])
+                    if !used.contains(s) {
+                        used.insert(s)
+                        return s
+                    }
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func claim(
+        from candidates: [String],
+        alphabet: Set<Character>,
+        used: inout Set<String>
+    ) -> String? {
+        for candidate in candidates where !candidate.isEmpty {
+            if !used.contains(candidate), candidate.allSatisfy({ alphabet.contains($0) }) {
+                used.insert(candidate)
+                return candidate
             }
         }
         return nil
