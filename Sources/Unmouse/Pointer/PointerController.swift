@@ -16,14 +16,48 @@ enum PointerController {
     private static var pendingY: Double = 0
     /// Last point we posted. mouseLocation lags, and a nudge or click that reads it puts the pointer back.
     private static var aim = PointerAim()
+    /// Display frames in CGEvent space. Rebuilt on screen-parameter changes only.
+    /// Hot-path `location` must not call `NSScreen.screens` — that stalls the main-thread event tap.
+    private static var cachedDisplays: [CGRect] = []
+    private static var cachedPrimaryHeight: CGFloat = 0
+    private static var screenObserver: (any NSObjectProtocol)?
 
     static var location: CGPoint {
-        aim.resolve(live: systemLocation)
+        ensureDisplayCache()
+        return aim.resolve(live: systemLocation, displays: cachedDisplays)
     }
 
     private static var systemLocation: CGPoint {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        return CoordinateSpace.appKitToCGEvent(NSEvent.mouseLocation, primaryHeight: primaryH)
+        ensureDisplayCache()
+        return CoordinateSpace.appKitToCGEvent(NSEvent.mouseLocation, primaryHeight: cachedPrimaryHeight)
+    }
+
+    private static func ensureDisplayCache() {
+        if screenObserver == nil {
+            refreshDisplays()
+            screenObserver = NotificationCenter.default.addObserver(
+                forName: NSApplication.didChangeScreenParametersNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // Observer is queued on main; assumeIsolated keeps Swift 6 quiet.
+                MainActor.assumeIsolated { refreshDisplays() }
+            }
+        } else if cachedDisplays.isEmpty {
+            refreshDisplays()
+        }
+    }
+
+    private static func refreshDisplays() {
+        // Quartz global bounds match CGEvent posts. Avoid AppKit y-flip mistakes.
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetActiveDisplayList(count, &ids, &count)
+        cachedDisplays = (0..<Int(count)).map { CGDisplayBounds(ids[$0]) }
+        // AppKit mouseLocation still needs the primary's point height for the y flip.
+        cachedPrimaryHeight = NSScreen.screens.first?.frame.height
+            ?? CGDisplayBounds(CGMainDisplayID()).height
     }
 
     /// Clears "hidden until mouse moves" without warping. A lone +1 delta walks the pointer, so the nudge is paired.

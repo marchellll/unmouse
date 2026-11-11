@@ -45,4 +45,39 @@ struct PointerAimTests {
         #expect(aim.resolve(live: cell) == next)
         #expect(aim.resolve(live: next) == next)
     }
+
+    @Test func clampedPostBelowTheBottomDropsTheAim() {
+        let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let edge = CGPoint(x: 960, y: 1080)
+        var aim = PointerAim()
+        aim.remember(live: edge, point: CGPoint(x: 960, y: 1200))
+        #expect(aim.resolve(live: edge, displays: [display]) == edge)
+        #expect(aim.posted == nil)
+
+        aim.remember(live: edge, point: CGPoint(x: 960, y: 1400))
+        #expect(aim.resolve(live: edge, displays: [display]) == edge)
+        #expect(aim.posted == nil)
+    }
+
+    /// mouseLocation can track the virtual off-screen post; still snap back to the edge.
+    @Test func virtualOffScreenLiveStillClampsToTheEdge() {
+        let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let edge = CGPoint(x: 960, y: 1080)
+        let debt = CGPoint(x: 960, y: 4526)
+        var aim = PointerAim()
+        aim.remember(live: edge, point: debt)
+        #expect(aim.resolve(live: debt, displays: [display]) == edge)
+        #expect(aim.posted == nil)
+    }
+
+    @Test func postOntoANeighborDisplayKeepsTheAim() {
+        let left = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let right = CGRect(x: 1920, y: 0, width: 1920, height: 1080)
+        let onLeft = CGPoint(x: 1910, y: 540)
+        let onRight = CGPoint(x: 1930, y: 540)
+        var aim = PointerAim()
+        aim.remember(live: onLeft, point: onRight)
+        #expect(aim.resolve(live: onLeft, displays: [left, right]) == onRight)
+        #expect(aim.posted == onRight)
+    }
 }
