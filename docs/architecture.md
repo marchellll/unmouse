@@ -229,22 +229,22 @@ sequenceDiagram
     participant O as OverlayController
 
     N->>N: enterHint: generation plus one, mode hint
-    N->>O: showHints (empty panel)
+    N->>O: showHints empty panel plus palette
     N-)AX: Task loadHints(generation): collect
-    AX-->>N: targets from the focused app
+    AX-->>N: controls, text, menus, windows, apps
     N->>N: stop if mode left hint or generation changed
-    N->>HC: assignCodes(targets, hint.chars)
-    N->>HL: layout(coded targets, screen bounds)
+    N->>HC: assignCodes ranked then sliced
+    N->>HL: layout labeled targets
     N->>O: refreshHints
-    Note over N: user types a code
-    N->>N: HintState.typeCharacter, narrowed or armed
-    Note over N: Space on an exact code
-    N->>N: armExactMatch, finalizeHint
+    Note over N: user types a query
+    N->>N: HintState.typeCharacter, fuzzy rank
+    Note over N: Space or Return, Shift+Space, Cmd+digit, Option, Command, Escape
+    N->>N: activateHint or mode change
 ```
 
-`AccessibilityHintSource` reads the focused app's accessibility tree on a background task: buttons, links, fields, and similar roles, up to 400 nodes, 0.25 s per node. If the focused app is Unmouse itself, that system call would re-enter SwiftUI on the wrong thread, so the scan walks `NSAccessibility` on the main actor instead.
+`AccessibilityHintSource` reads the focused app on a background task: clickable roles and the menu bar get yellow labels; static text, nested menus, open windows, and installed apps are search-only. Web areas get `AXManualAccessibility` and a second child read, plus `AXLinkUIElements`. Frames that cover most of the window are dropped. If the focused app is Unmouse itself, the scan walks `NSAccessibility` on the main actor instead.
 
-`HintCoder` assigns a short code, preferring a prefix of the control's title (`Save` → `s`, `Settings` → `se`). `HintLayout` turns targets into bubbles by calling `BoundaryLabeler`. Typing narrows the visible bubbles. A code that equals exactly what was typed is highlighted even when a longer code shares that prefix, and Space calls `armExactMatch` so that short code can still fire.
+`HintCoder` ranks targets (default, cancel, buttons, links, other window controls, then menu bar), boosts titles listed in `priority-words.txt`, and slices a mnemonic from the title (`Delete` → `d`, `Cancel` → `ca`, `search menu` → `sm`). Single-character codes stay in the focused window; menu bar items get two-or-more-character codes. Letter actions such as `a` / `s` / `d` stay in grid and free mode so the full `hint.chars` alphabet can label and search. `HintFuzzy` ranks a query with a subsequence score (spaces in the query are dropped); an exact hint code always wins. After three typed characters, the top nine hits get ⌘1–⌘9. `HintLayout` places the yellow bubbles. Space or Return activates the selected row; Shift+Space or Shift+Return right-clicks; alone Option moves there and enters free mode; alone Command opens the grid; Escape cancels.
 
 ## The pointer
 
@@ -366,6 +366,8 @@ The arena reports a real hit (the green target, the orange target, the puck land
 | Change free-mode speed | `Motion/AccelCurve.swift` and `FreeMotion.tick` |
 | Change a move, click, or scroll | `Pointer/PointerController.swift` |
 | Change which controls get a hint | `Overlay/AccessibilityHintSource.swift` |
+| Boost which titles win short codes | `Sources/UnmouseCore/Hint/priority-words.txt` |
+| Change hint fuzzy ranking | `Sources/UnmouseCore/Hint/HintFuzzy.swift` |
 | Change where hint bubbles sit | `Packages/BoundaryLabeling` |
 | Change a practice step | `Tutorial/Tutorial.swift` (`TutorialCatalog`) |
 | Change a preset | `configs-example/` |

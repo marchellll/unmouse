@@ -37,6 +37,6 @@ open Unmouse.app
 
 ## Checks before a pull request
 
-For a user-visible change, run `./scripts/dev-app.sh`, launch `Unmouse.app`, and try the mode you touched: open it, do the action, cancel, and confirm Settings still loads `config.toml`. Grid, free, and hint share the event path in `Sources/Unmouse/Input/NavigationModel.swift`, so a shortcut change is worth a pass through the other two modes.
+For a user-visible change, run `./scripts/dev-app.sh`, launch `Unmouse.app`, and try the mode you touched: open it, do the action, cancel, and confirm Settings still loads `config.toml`. Grid, free, and hint share the event path in `Sources/Unmouse/Input/NavigationModel.swift`, so a shortcut change is worth a pass through the other two modes. For a hint change, also type a text match, press ⌘1 after three characters, check a window row and an app row, and confirm Space and Return both activate.
 
 Logs go to Console under subsystem `xyz.marchell.unmouse`. Input tracing always prints to stderr and to category `input`. The log level in Settings gates category `app`. `none` writes nothing there.

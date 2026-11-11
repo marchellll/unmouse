@@ -6,15 +6,17 @@ import UnmouseCore
 /// Temporary input debugger. Always writes to Console.app (filter subsystem
 /// `xyz.marchell.unmouse`, category `input`) and stderr. Turn off with `InputTrace.enabled = false`.
 enum InputTrace {
-    static var enabled = true
+    /// Readable from the hint AX scan thread — only flipped at startup.
+    nonisolated(unsafe) static var enabled = true
 
-    private static let logger = Logger(subsystem: "xyz.marchell.unmouse", category: "input")
+    nonisolated private static let logger = Logger(subsystem: "xyz.marchell.unmouse", category: "input")
 
-    static func log(_ message: @autoclosure () -> String) {
+    /// nonisolated so AccessibilityHintSource phase logs work off the main actor.
+    nonisolated static func log(_ message: @autoclosure () -> String) {
         guard enabled else { return }
         let text = message()
         logger.debug("\(text, privacy: .public)")
-        UnmouseLog.debug(text)
+        // Always emit on the input category; UnmouseLog may be gated to .none.
         fputs("[input] \(text)\n", stderr)
         fflush(stderr)
     }

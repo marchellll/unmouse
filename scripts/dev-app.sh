@@ -25,6 +25,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/Unmouse"
 cp "$ROOT/Support/Info.plist" "$APP/Contents/Info.plist"
 cp -R "$ROOT/configs-example" "$APP/Contents/Resources/configs-example"
+# SPM resource bundle (priority-words.txt). Bundle.module needs this next to Resources.
+CORE_BUNDLE="$BIN_DIR/Unmouse_UnmouseCore.bundle"
+if [[ -d "$CORE_BUNDLE" ]]; then
+  cp -R "$CORE_BUNDLE" "$APP/Contents/Resources/Unmouse_UnmouseCore.bundle"
+else
+  echo "warn: missing $CORE_BUNDLE — PriorityWords falls back to embedded list"
+fi
 
 codesign --force --deep --sign "$IDENTITY" "$APP"
 

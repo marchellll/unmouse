@@ -100,7 +100,6 @@ struct CoachView: View {
     private func hintNext(_ b: BindingsConfig) -> [String] {
         let space = label(b.hint.leftClick)
         let right = label(b.hint.rightClick)
-        let move = label(b.hint.moveNoAction)
         let free = label(b.hint.toFree)
         let back = label(b.hint.back)
         let cancel = label(b.hint.cancel)
@@ -109,27 +108,21 @@ struct CoachView: View {
         if state.targets.isEmpty {
             return ["Scanning controls…"]
         }
-        if state.armedID != nil {
+        if let selected = state.selectedTarget {
+            let name = selected.title.isEmpty ? selected.code : selected.title
             return [
-                "\(space) click · \(right) right · \(move) move",
+                "\(space) “\(name.prefix(24))” · \(right) right",
                 "\(free) free · \(back) back · \(cancel) cancel",
             ]
         }
         if !state.typed.isEmpty {
-            let exact = state.targets.contains { $0.code == state.typed }
-            if exact {
-                return [
-                    "\(space) confirm “\(state.typed)” · keep typing for longer",
-                    "\(free) free · \(back) back · \(cancel) cancel",
-                ]
-            }
             return [
                 "Keep typing · \(back) back",
                 "\(cancel) cancel",
             ]
         }
         return [
-            "Type a hint code",
+            "Type a code or search",
             "\(cancel) cancel",
         ]
     }

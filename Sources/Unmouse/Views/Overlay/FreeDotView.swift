@@ -9,10 +9,11 @@ import UnmouseCore
 final class FreeDotView: NSView {
     private let halo = CAShapeLayer()
     private let ring = CAShapeLayer()
+    /// Dragging replaces the circular halo — same color + attention, diamond silhouette.
+    private let dragHalo = CAShapeLayer()
+    private let dragRing = CAShapeLayer()
     private let core = CAShapeLayer()
-    private let dragDot = CAShapeLayer()
     private var signature: Signature?
-    private var dragHidden = true
 
     private struct Signature: Equatable {
         var attention: HaloAttention
@@ -44,33 +45,35 @@ final class FreeDotView: NSView {
             signature = next
             install(next)
         }
-        let hideDrag = !dragging
-        if dragHidden != hideDrag {
-            dragHidden = hideDrag
-            dragDot.isHidden = hideDrag
-        }
-        pose(next, time: CACurrentMediaTime())
+        pose(next, time: CACurrentMediaTime(), dragging: dragging)
     }
 
     private func install(_ sig: Signature) {
         let fill = Self.cgColor(sig.fill)
         let haloColor = Self.cgColor(sig.halo)
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let diameter: CGFloat = 6
 
-        circle(halo, diameter: 6, fill: haloColor, center: center)
-        circle(ring, diameter: 6 * 1.15, fill: nil, center: center)
+        circle(halo, diameter: diameter, fill: haloColor, center: center)
+        circle(ring, diameter: diameter * 1.15, fill: nil, center: center)
         ring.strokeColor = haloColor
         ring.lineWidth = 1.5
-        circle(core, diameter: 6, fill: fill, center: center)
-        circle(dragDot, diameter: 3, fill: fill, center: center)
-        dragDot.isHidden = dragHidden
+
+        diamond(dragHalo, diameter: diameter, fill: haloColor, center: center)
+        diamond(dragRing, diameter: diameter * 1.15, fill: nil, center: center)
+        dragRing.strokeColor = haloColor
+        dragRing.lineWidth = 1.5
+        dragRing.fillColor = nil
+
+        circle(core, diameter: diameter, fill: fill, center: center)
 
         guard let root = layer else { return }
         if halo.superlayer == nil {
             root.addSublayer(halo)
             root.addSublayer(ring)
+            root.addSublayer(dragHalo)
+            root.addSublayer(dragRing)
             root.addSublayer(core)
-            root.addSublayer(dragDot)
         }
     }
 
@@ -79,7 +82,7 @@ final class FreeDotView: NSView {
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        for layer in [halo, ring, core, dragDot] {
+        for layer in [halo, ring, dragHalo, dragRing, core] {
             layer.position = center
         }
         CATransaction.commit()
@@ -95,30 +98,55 @@ final class FreeDotView: NSView {
         layer.lineWidth = 0
     }
 
+    private func diamond(_ layer: CAShapeLayer, diameter: CGFloat, fill: CGColor?, center: CGPoint) {
+        layer.bounds = CGRect(x: 0, y: 0, width: diameter, height: diameter)
+        layer.position = center
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        let b = layer.bounds
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: b.midX, y: b.minY))
+        path.addLine(to: CGPoint(x: b.maxX, y: b.midY))
+        path.addLine(to: CGPoint(x: b.midX, y: b.maxY))
+        path.addLine(to: CGPoint(x: b.minX, y: b.midY))
+        path.closeSubpath()
+        layer.path = path
+        layer.fillColor = fill
+        layer.strokeColor = nil
+        layer.lineWidth = 0
+    }
+
     /// ponytail: sampled on the free-mode display link. Upgrade path is a keyframe if the cosine looks wrong.
-    private func pose(_ sig: Signature, time: CFTimeInterval) {
+    private func pose(_ sig: Signature, time: CFTimeInterval, dragging: Bool) {
         let period = max(0.2, sig.period)
         let peak = CGFloat(max(1.2, sig.scale))
         let phase = time.truncatingRemainder(dividingBy: period) / period
         let cosine = CGFloat(0.5 - 0.5 * cos(phase * 2 * .pi))
+        let body = dragging ? dragHalo : halo
+        let outline = dragging ? dragRing : ring
+
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        halo.isHidden = dragging
+        ring.isHidden = dragging
+        dragHalo.isHidden = !dragging
+        dragRing.isHidden = !dragging
+
         switch sig.attention {
         case .none:
-            ring.isHidden = true
-            pin(halo, scale: 1.6, opacity: 0.55)
+            outline.isHidden = true
+            pin(body, scale: 1.6, opacity: 0.55)
         case .pulse:
-            ring.isHidden = false
-            pin(halo, scale: lerp(1.4, peak, cosine), opacity: lerp(0.75, 0.35, cosine))
-            pin(ring, scale: lerp(1.4, peak, cosine), opacity: lerp(0.525, 0.245, cosine))
+            outline.isHidden = false
+            pin(body, scale: lerp(1.4, peak, cosine), opacity: lerp(0.75, 0.35, cosine))
+            pin(outline, scale: lerp(1.4, peak, cosine), opacity: lerp(0.525, 0.245, cosine))
         case .ping:
-            ring.isHidden = false
+            outline.isHidden = false
             let saw = CGFloat(phase)
-            pin(halo, scale: lerp(1.2, peak, saw), opacity: lerp(0.7, 0, saw))
-            pin(ring, scale: lerp(1.2, peak, saw), opacity: lerp(0.49, 0, saw))
+            pin(body, scale: lerp(1.2, peak, saw), opacity: lerp(0.7, 0, saw))
+            pin(outline, scale: lerp(1.2, peak, saw), opacity: lerp(0.49, 0, saw))
         case .breathe:
-            ring.isHidden = true
-            pin(halo, scale: lerp(1.5, 1.85, cosine), opacity: lerp(0.3, 0.75, cosine))
+            outline.isHidden = true
+            pin(body, scale: lerp(1.5, 1.85, cosine), opacity: lerp(0.3, 0.75, cosine))
         }
         CATransaction.commit()
         superview?.layer?.setNeedsDisplay()

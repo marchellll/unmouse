@@ -241,7 +241,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         fastMultiplier: Double = 3,
         slowMultiplier: Double = 0.25,
         scrollSpeed: Double = 200,
-        scrollReverseX: Bool = false,
+        scrollReverseX: Bool = true,
         scrollReverseY: Bool = false,
         exitOnAction: Bool = false,
         haloAttention: HaloAttention = .pulse,
@@ -271,7 +271,7 @@ public struct FreeConfig: Codable, Sendable, Equatable {
         fastMultiplier = try Self.decodeNumber(c, forKey: .fastMultiplier)
         slowMultiplier = try Self.decodeNumber(c, forKey: .slowMultiplier)
         scrollSpeed = try Self.decodeNumber(c, forKey: .scrollSpeed)
-        scrollReverseX = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseX) ?? false
+        scrollReverseX = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseX) ?? true
         scrollReverseY = try c.decodeIfPresent(Bool.self, forKey: .scrollReverseY) ?? false
         exitOnAction = try c.decodeIfPresent(Bool.self, forKey: .exitOnAction) ?? false
         haloAttention = try c.decodeIfPresent(HaloAttention.self, forKey: .haloAttention) ?? .pulse

@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Observation
 import UnmouseCore
@@ -12,6 +13,8 @@ final class NavigationModel {
     var gridState: GridState?
     var hintState = HintState()
     var hintBubbles: [HintBubble] = []
+    /// Cached once on enterHint — overlay body must not re-query AX each redraw.
+    var hintScreenFrame: CGRect = .zero
     var dragging = false
     var bindings = BindingTable.empty
     let motion = FreeMotion()
@@ -95,6 +98,55 @@ final class NavigationModel {
         return NSScreen.screens.first { NSMouseInRect(p, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
+    /// Screen that holds the focused window. Falls back to the cursor screen.
+    func screenForFocusedWindow() -> NSScreen {
+        if let frame = Self.focusedWindowAppKitFrame() {
+            let mid = CGPoint(x: frame.midX, y: frame.midY)
+            if let screen = NSScreen.screens.first(where: { NSMouseInRect(mid, $0.frame, false) }) {
+                return screen
+            }
+            // Prefer the screen with the largest intersection if the midpoint is in a gap.
+            let best = NSScreen.screens.max { a, b in
+                let aa = a.frame.intersection(frame)
+                let bb = b.frame.intersection(frame)
+                return aa.width * aa.height < bb.width * bb.height
+            }
+            if let best, best.frame.intersects(frame) { return best }
+        }
+        return screenForCursor()
+    }
+
+    /// Focused window frame in AppKit screen coords (bottom-left origin).
+    private static func focusedWindowAppKitFrame() -> CGRect? {
+        guard AXIsProcessTrusted() else { return nil }
+        let system = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(system, 0.15)
+        var focusedApp: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(system, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success,
+              let focusedApp
+        else { return nil }
+        let appEl = unsafeDowncast(focusedApp as AnyObject, to: AXUIElement.self)
+        var windowRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
+              let windowRef
+        else { return nil }
+        let win = unsafeDowncast(windowRef as AnyObject, to: AXUIElement.self)
+        var posRef: CFTypeRef?
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &posRef) == .success,
+              AXUIElementCopyAttributeValue(win, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let posRef, let sizeRef
+        else { return nil }
+        var pos = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(posRef as! AXValue, .cgPoint, &pos),
+              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        else { return nil }
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        let appKitOrigin = CoordinateSpace.cgEventToAppKit(pos, primaryHeight: primaryH)
+        return CGRect(x: appKitOrigin.x, y: appKitOrigin.y - size.height, width: size.width, height: size.height)
+    }
+
     // MARK: - Mode transitions
 
     func enterGrid() {
@@ -152,6 +204,11 @@ final class NavigationModel {
         gridState = nil
         hintState = HintState()
         hintBubbles = []
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        hintScreenFrame = screenForFocusedWindow().frame
+        InputTrace.log(
+            "hint screen frame \(Int(hintScreenFrame.width))x\(Int(hintScreenFrame.height))@\(Int(hintScreenFrame.minX)),\(Int(hintScreenFrame.minY)) axMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+        )
         mode = .hint
         bumpModeActivity()
         startModeWatch()
@@ -160,6 +217,7 @@ final class NavigationModel {
         app.overlayController?.showHints()
         app.overlayController?.updateCoach()
         onTutorial?(.enteredHint)
+        syncHintCommandHeld()
         Task { await loadHints(generation: generation) }
     }
 
@@ -170,6 +228,7 @@ final class NavigationModel {
         gridState = nil
         hintState = HintState()
         hintBubbles = []
+        hintScreenFrame = .zero
         app.overlayController?.hideAllOverlays(keepDrag: keepDrag)
         stopDisplayLink()
         stopModeWatch()
@@ -228,6 +287,7 @@ final class NavigationModel {
             } else {
                 swallow = handleKeyDown(kind: kind, flags: flags)
             }
+            syncHintCommandHeld()
             InputTrace.log("nav result \(token) \(down ? "↓" : "↑") swallow=\(swallow) mode=\(mode.rawValue)")
             return swallow
         }
@@ -362,6 +422,16 @@ final class NavigationModel {
                 return false
             }
             if freeTap {
+                if mode == .hint {
+                    InputTrace.log("nav → hint to free")
+                    if hintState.selectedTarget != nil {
+                        onTutorial?(.hintArmed)
+                        finalizeHintToFree()
+                    } else {
+                        enterFree(fromGrid: false)
+                    }
+                    return false
+                }
                 if mode == .grid, let center = gridState?.prospectiveCenter {
                     InputTrace.log("nav → gridToFree at \(center)")
                     PointerController.move(toAppKit: center)
@@ -596,6 +666,20 @@ final class NavigationModel {
 
     // MARK: - Hint
 
+    /// ⌘ held → stamp ⌘1–9 onto palette + window bubbles even with a short query.
+    private func syncHintCommandHeld() {
+        guard mode == .hint else { return }
+        let held = lastFlags.contains(.maskCommand)
+            || motion.heldKeys.isHeld("commandLeft")
+            || motion.heldKeys.isHeld("commandRight")
+            || motion.heldKeys.isHeld("command")
+        let before = hintState.commandHeld
+        hintState.setCommandHeld(held)
+        if hintState.commandHeld != before {
+            app.overlayController?.refreshHints()
+        }
+    }
+
     private func handleHintKey(kind: KeyKind, flags: CGEventFlags) -> Bool {
         let b = bindings.hint
         if b.cancel.matches(key: kind, flags: flags, alone: false) {
@@ -604,25 +688,56 @@ final class NavigationModel {
         if b.back.matches(key: kind, flags: flags, alone: false) {
             hintState.backspace(); app.overlayController?.refreshHints(); return true
         }
-        if b.leftClick.matches(key: kind, flags: flags, alone: false) {
-            if hintState.armExactMatch() { onTutorial?(.hintArmed); finalizeHint(.left) }
+        if kind == .up {
+            hintState.moveSelection(-1); app.overlayController?.refreshHints(); return true
+        }
+        if kind == .down {
+            hintState.moveSelection(1); app.overlayController?.refreshHints(); return true
+        }
+        // ⌘T cycles palette: semi-bottom → center → semi-top.
+        if flags.contains(.maskCommand), kind == .letter("t") {
+            hintState.paletteAnchor.toggle()
+            app.overlayController?.refreshHints()
             return true
         }
-        if b.rightClick.matches(key: kind, flags: flags, alone: false) {
-            if hintState.armExactMatch() { onTutorial?(.hintArmed); finalizeHint(.right) }
-            return true
-        }
-        if b.moveNoAction.matches(key: kind, flags: flags, alone: false) {
-            if hintState.armExactMatch() { onTutorial?(.hintArmed); finalizeHint(nil) }
-            return true
-        }
-        if b.toFree.matches(key: kind, flags: flags, alone: kind.isModifier) {
-            if hintState.armExactMatch() {
+        // ⌘1…⌘9 / ⌘0 after enough query characters.
+        if flags.contains(.maskCommand), case .digit(let d) = kind, let n = Int(String(d)) {
+            if let target = hintState.selectCmdNumber(n) {
                 onTutorial?(.hintArmed)
-                if kind.isModifier { consumeFreeExitUp = true }
-                finalizeHintToFree()
+                activateHint(target, button: .left)
             }
             return true
+        }
+        // Bare typable keys always search — never treat them as click even if config says so.
+        let bareTypable = Self.isHintBareTypable(kind: kind, flags: flags)
+        if !bareTypable, b.leftClick.matches(key: kind, flags: flags, alone: false) {
+            // Empty palette query: Space/Return cancel — do not click the top row.
+            if hintState.typed.isEmpty {
+                exitToIdle(keepDrag: dragging)
+                onTutorial?(.cancelled)
+                return true
+            }
+            if hintState.armExactMatch() {
+                onTutorial?(.hintArmed)
+                activateHint(hintState.selectedTarget, button: .left)
+            }
+            return true
+        }
+        if !bareTypable, b.rightClick.matches(key: kind, flags: flags, alone: false) {
+            if hintState.typed.isEmpty {
+                exitToIdle(keepDrag: dragging)
+                onTutorial?(.cancelled)
+                return true
+            }
+            if hintState.armExactMatch() {
+                onTutorial?(.hintArmed)
+                activateHint(hintState.selectedTarget, button: .right)
+            }
+            return true
+        }
+        // Option alone is handled on key-up. Ignore Option key-down here so it is not swallowed as typing.
+        if b.toFree.matches(key: kind, flags: flags, alone: kind.isModifier), kind.isModifier {
+            return false
         }
         if let ch = kind.character {
             guard !hintState.targets.isEmpty else { return true }
@@ -634,45 +749,73 @@ final class NavigationModel {
         return true
     }
 
-    private func finalizeHint(_ button: MouseButton?) {
-        guard let target = hintState.armedTarget else { return }
-        moveToHint(target)
-        if let button {
-            if dragging, button == .left {
+    /// Letter/digit/punct with no ⌘⌥⌃⇧ — reserved for hint typing/search.
+    private static func isHintBareTypable(kind: KeyKind, flags: CGEventFlags) -> Bool {
+        let mods = flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift])
+        return mods.isEmpty && kind.character != nil
+    }
+
+    private func activateHint(_ target: HintTarget?, button: MouseButton?) {
+        guard let target else { return }
+        if case .click = target.action {
+            if button == nil {
+                HintActivator.moveTo(target.frame)
+            } else if dragging, button == .left {
+                HintActivator.moveTo(target.frame)
                 endDrag(notifyTutorial: true)
             } else if button == .left {
-                performLeftClick()
-            } else {
-                PointerController.click(button); onTutorial?(.rightClick)
+                HintActivator.perform(target, button: .left)
+                onTutorial?(.leftClick)
+            } else if let button {
+                HintActivator.perform(target, button: button)
+                if button == .right { onTutorial?(.rightClick) }
             }
+        } else {
+            HintActivator.perform(target, button: button)
         }
         exitToIdle()
     }
 
     private func finalizeHintToFree() {
-        guard let target = hintState.armedTarget else { return }
-        moveToHint(target)
+        guard let target = hintState.selectedTarget else {
+            enterFree(fromGrid: false)
+            return
+        }
+        if case .click = target.action, !target.frame.isEmpty {
+            HintActivator.moveTo(target.frame)
+        }
         enterFree(fromGrid: false)
     }
 
-    private func moveToHint(_ target: HintTarget) {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let cg = CoordinateSpace.appKitToCGEvent(
-            CGPoint(x: target.frame.midX, y: target.frame.midY),
-            primaryHeight: primaryH
-        )
-        InputTrace.log("hint move \(InputTrace.point(cg))")
-        PointerController.move(to: cg)
-    }
-
     private func loadHints(generation: UInt64) async {
+        InputTrace.log("hint load start gen=\(generation)")
+        let t0 = DispatchTime.now().uptimeNanoseconds
         let source = AccessibilityHintSource()
         let targets = await source.collect()
-        guard mode == .hint, generation == hintLoadGeneration else { return }
+        let scanMs = (DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
+        guard mode == .hint, generation == hintLoadGeneration else {
+            InputTrace.log("hint load stale gen=\(generation) current=\(hintLoadGeneration) mode=\(mode.rawValue) scanMs=\(scanMs) n=\(targets.count)")
+            return
+        }
+        InputTrace.log("hint load scan done n=\(targets.count) scanMs=\(scanMs)")
+        let t1 = DispatchTime.now().uptimeNanoseconds
         let coded = HintCoder.assignCodes(targets: targets, chars: app.config.hint.chars)
+        let labeled = coded.filter(\.showsLabel).count
+        let codeMs = (DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000
+        let anchor = hintState.paletteAnchor
+        let cmdHeld = hintState.commandHeld
         hintState = HintState(targets: coded)
-        let screen = screenForCursor().frame
+        hintState.paletteAnchor = anchor
+        hintState.setCommandHeld(cmdHeld)
+        let screen = hintScreenFrame.isEmpty ? screenForFocusedWindow().frame : hintScreenFrame
+        hintScreenFrame = screen
+        let t2 = DispatchTime.now().uptimeNanoseconds
         hintBubbles = HintLayout.layout(targets: coded, screenBounds: screen)
+        let layoutMs = (DispatchTime.now().uptimeNanoseconds - t2) / 1_000_000
+        InputTrace.log(
+            "hint load ready labeled=\(labeled) bubbles=\(hintBubbles.count) codeMs=\(codeMs) layoutMs=\(layoutMs) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+        )
+        app.overlayController?.showHints()
         app.overlayController?.refreshHints()
     }
 

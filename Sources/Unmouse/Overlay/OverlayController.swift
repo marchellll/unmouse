@@ -149,9 +149,14 @@ final class OverlayController {
 
     func showHints() {
         guard let model else { return }
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        // Use the frame cached in enterHint — no AX from the overlay path.
+        var frame = model.nav.hintScreenFrame
+        if frame.isEmpty {
+            frame = model.nav.screenForFocusedWindow().frame
+            model.nav.hintScreenFrame = frame
+        }
         if let panel = hintPanel {
-            panel.setFrame(screen.frame, display: true)
+            panel.setFrame(frame, display: true)
             if panel.contentView == nil {
                 panel.contentView = NSHostingView(rootView: HintOverlayView(model: model))
             }
@@ -160,7 +165,7 @@ final class OverlayController {
             }
             return
         }
-        let panel = makeOverlayPanel(frame: screen.frame)
+        let panel = makeOverlayPanel(frame: frame)
         panel.contentView = NSHostingView(rootView: HintOverlayView(model: model))
         panel.orderFrontRegardless()
         hintPanel = panel

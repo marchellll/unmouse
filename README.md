@@ -1,6 +1,6 @@
 # Unmouse
 
-Menu-bar app that drives the pointer from the keyboard. A grid jumps to a point on screen, free mode steers the pointer and scroll, and hint mode labels the controls already on screen.
+Menu-bar app that drives the pointer from the keyboard. A grid jumps to a point on screen, free mode steers the pointer and scroll, and hint mode labels on-screen controls and fuzzy-searches text, menus, windows, and apps.
 
 macOS 27. [MIT](LICENSE).
 
@@ -21,7 +21,7 @@ Unmouse has no Dock icon. Use the menu-bar icon, then **Settings…**.
 
 The first launch walks through two permissions:
 
-- **Accessibility** moves the pointer, clicks, scrolls, and reads on-screen controls for hint mode.
+- **Accessibility** moves the pointer, clicks, scrolls, and reads on-screen controls, menus, windows, and text for hint mode.
 - **Input Monitoring** lets Unmouse see the keys that open and drive each mode.
 
 Leave both granted. Unmouse cannot move the pointer or see those keys without them.
@@ -32,9 +32,9 @@ Tap a mode key. Hold it longer than the alone-tap limit (200 ms by default) and 
 
 | | Open | Then |
 |---|---|---|
-| Grid | Tap left ⌘ | Type a cell label. Space left-clicks. `a` right-clicks, `s` middle-clicks, `d` moves without clicking. Delete steps back, Tab moves to the next screen, Escape cancels. |
-| Free | Tap left ⌥ | `j` `k` `l` `;` steer (arrows do the same). Hold `z` to go faster, `x` to go slower. `m` `,` `.` `/` scroll. `q` toggles a drag. Space left-clicks and stays in free mode. Escape cancels. |
-| Hint | ⌘⇧Space | Type a label to arm that control. Space left-clicks it and leaves. `a` right-clicks, `d` moves without clicking, left ⌥ moves there and enters free mode. Delete steps back, Escape cancels. |
+| Grid | Tap left ⌘ | Type a cell label. Space or Return left-clicks. `a` right-clicks, `s` middle-clicks, `d` moves without clicking. Delete steps back, Tab moves to the next screen, Escape cancels. |
+| Free | Tap left ⌥ | `j` `k` `l` `;` steer (arrows do the same). Hold `z` to go faster, `x` to go slower. `m` `,` `.` `/` scroll. `q` toggles a drag. Space or Return left-clicks and stays in free mode. Escape cancels. |
+| Hint | ⌘⇧Space | Type a label or search text, menus, windows, and apps. Space or Return activates the selection. Shift+Space or Shift+Return right-clicks. After 3 characters, ⌘1–⌘9 pick a top hit. Alone ⌘ opens the grid; alone ⌥ moves there and enters free mode. Delete edits the query, Escape cancels. |
 
 On a finished grid cell, left ⌥ moves there before entering free mode. Settings shows the full binding list and can record new shortcuts.
 

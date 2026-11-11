@@ -19,7 +19,10 @@ let package = Package(
                 .product(name: "TOMLKit", package: "TOMLKit"),
                 "BoundaryLabeling",
             ],
-            path: "Sources/UnmouseCore"
+            path: "Sources/UnmouseCore",
+            resources: [
+                .process("Hint/priority-words.txt"),
+            ]
         ),
         .executableTarget(
             name: "Unmouse",

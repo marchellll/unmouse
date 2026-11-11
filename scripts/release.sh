@@ -225,6 +225,12 @@ else
   plist_set "$APP/Contents/Info.plist" CFBundleShortVersionString "$VERSION"
 fi
 cp -R "$ROOT/configs-example" "$APP/Contents/Resources/configs-example"
+CORE_BUNDLE="$BIN_DIR/Unmouse_UnmouseCore.bundle"
+if [[ -d "$CORE_BUNDLE" ]]; then
+  cp -R "$CORE_BUNDLE" "$APP/Contents/Resources/Unmouse_UnmouseCore.bundle"
+else
+  echo "warn: missing $CORE_BUNDLE — PriorityWords falls back to embedded list"
+fi
 
 got="$(plist_string "$APP/Contents/Info.plist" CFBundleShortVersionString)"
 if [[ "$got" != "$VERSION" ]]; then

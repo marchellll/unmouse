@@ -418,12 +418,11 @@ struct SettingsView: View {
             HexColorPicker(title: "Line", hint: "Border of each hint bubble.", hex: colorHex(\.hintLine), onChange: commit)
         }
         Section("Shortcuts") {
-            bind("Left click", hintBind(\.leftClick), hint: "On an exact label match, moves to that control, left-clicks, and leaves hint mode. Press it again within the system double-click time to double-click, and once more to triple-click.")
-            bind("Right click", hintBind(\.rightClick), hint: "On an exact label match, moves there, right-clicks, and leaves hint mode.")
-            bind("Move no action", hintBind(\.moveNoAction), hint: "On an exact label match, moves the pointer onto that control and leaves without clicking.")
-            bind("To free", hintBind(\.toFree), hint: "On an exact label match, moves onto that control and switches into free mode so you can nudge or click from there.")
-            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer.")
-            bind("Back", hintBind(\.back), hint: "Deletes the last character of the label you are typing.")
+            bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode. Space and Return both work.")
+            bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Shift+Space and Shift+Return by default.")
+            bind("To free", hintBind(\.toFree), hint: "Alone tap moves onto the selected on-screen control and switches into free mode.")
+            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. Escape by default.")
+            bind("Back", hintBind(\.back), hint: "Deletes the last character of the query.")
         }
     }
 

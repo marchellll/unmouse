@@ -42,7 +42,6 @@ struct BindingTable {
         var back: BindingMatcher
         var leftClick: BindingMatcher
         var rightClick: BindingMatcher
-        var moveNoAction: BindingMatcher
         var toFree: BindingMatcher
     }
 
@@ -98,14 +97,22 @@ struct BindingTable {
             slowerRaw: f.slower
         )
         let h = bindings.hint
+        // Bare letters always type/search in hint — never honor them as click bindings.
         hint = Hint(
             cancel: BindingMatcher(h.cancel),
             back: BindingMatcher(h.back),
-            leftClick: BindingMatcher(h.leftClick),
-            rightClick: BindingMatcher(h.rightClick),
-            moveNoAction: BindingMatcher(h.moveNoAction),
+            leftClick: BindingMatcher(Self.hintClicksKeepingTypable(h.leftClick)),
+            rightClick: BindingMatcher(Self.hintClicksKeepingTypable(h.rightClick)),
             toFree: BindingMatcher(h.toFree)
         )
+    }
+
+    /// Drops bare letter/digit/punct shortcuts so hint mode can always type them.
+    private static func hintClicksKeepingTypable(_ raw: [String]) -> [String] {
+        raw.filter { entry in
+            guard let sc = try? ShortcutParser.parse(entry) else { return true }
+            return !(sc.modifiers.isEmpty && sc.key.character != nil)
+        }
     }
 
     func matchesMove(_ direction: MoveDirection, key: KeyKind, flags: CGEventFlags) -> Bool {

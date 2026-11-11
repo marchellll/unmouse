@@ -1,0 +1,9 @@
+# Phrases that boost a control when assigning mnemonic codes.
+# One phrase per line, case folded. # starts a comment.
+# A match sorts the control ahead in its structural tier.
+# This never invents Latin letters the label does not already have.
+ok
+save
+done
+open
+yes

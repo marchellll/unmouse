@@ -2,17 +2,46 @@ import BoundaryLabeling
 import CoreGraphics
 import Foundation
 
+/// What happens when the selected hint row is activated.
+public enum HintAction: Equatable, Sendable {
+    case click
+    case menu(pid: Int32, path: [String])
+    case window(pid: Int32, title: String)
+    case app(path: String)
+}
+
 public struct HintTarget: Equatable, Sendable, Identifiable {
     public var id: String
     public var title: String
     public var frame: CGRect
     public var code: String
+    public var role: String
+    public var action: HintAction
+    /// Yellow letter bubble. False for text, nested menus, windows, apps.
+    public var showsLabel: Bool
+    public var isDefault: Bool
+    public var isCancel: Bool
 
-    public init(id: String, title: String, frame: CGRect, code: String = "") {
+    public init(
+        id: String,
+        title: String,
+        frame: CGRect,
+        code: String = "",
+        role: String = "",
+        action: HintAction = .click,
+        showsLabel: Bool = true,
+        isDefault: Bool = false,
+        isCancel: Bool = false
+    ) {
         self.id = id
         self.title = title
         self.frame = frame
         self.code = code
+        self.role = role
+        self.action = action
+        self.showsLabel = showsLabel
+        self.isDefault = isDefault
+        self.isCancel = isCancel
     }
 }
 
@@ -43,27 +72,105 @@ public struct HintBubble: Equatable, Sendable, Identifiable {
 }
 
 public enum HintCoder {
-    /// Assign short codes from charset. Prefer title prefix when unique.
-    public static func assignCodes(targets: [HintTarget], chars: String) -> [HintTarget] {
+    /// Cmd+N appears after this many typed query characters.
+    public static let cmdNumberMinQuery = 3
+
+    /// Assign short codes from charset. Rank, then slice the title.
+    public static func assignCodes(
+        targets: [HintTarget],
+        chars: String,
+        priorityWords: Set<String> = PriorityWords.load()
+    ) -> [HintTarget] {
         let alphabet = Array(chars.lowercased())
         guard !alphabet.isEmpty else { return targets }
 
-        var used: Set<String> = []
-        var result: [HintTarget] = []
-
-        func takeCode(preferred: String?) -> String? {
-            if let preferred {
-                let p = preferred.lowercased().filter { alphabet.contains($0) }
-                if !p.isEmpty {
-                    for len in 1...min(2, p.count) {
-                        let candidate = String(p.prefix(len))
-                        if !used.contains(candidate) {
-                            used.insert(candidate)
-                            return candidate
-                        }
-                    }
-                }
+        var labeled = targets.enumerated().filter { $0.element.showsLabel }
+        labeled.sort { a, b in
+            let ra = rank(a.element, priority: priorityWords)
+            let rb = rank(b.element, priority: priorityWords)
+            if ra != rb { return ra < rb }
+            if a.element.frame.maxY != b.element.frame.maxY {
+                return a.element.frame.maxY > b.element.frame.maxY
             }
+            if a.element.frame.minX != b.element.frame.minX {
+                return a.element.frame.minX < b.element.frame.minX
+            }
+            return a.offset < b.offset
+        }
+
+        var used: Set<String> = []
+        var codedByID: [String: String] = [:]
+
+        for (_, target) in labeled {
+            if let code = takeCode(for: target, alphabet: alphabet, used: &used, priority: priorityWords) {
+                codedByID[target.id] = code
+            }
+        }
+
+        return targets.map { t in
+            var copy = t
+            if let code = codedByID[t.id] {
+                copy.code = code
+            }
+            return copy
+        }
+    }
+
+    /// Lower is better. Focused-window controls beat the menu bar so short codes land in-window.
+    private static func rank(_ t: HintTarget, priority: Set<String>) -> Int {
+        var base: Int
+        if t.isDefault { base = 0 }
+        else if t.isCancel { base = 1 }
+        else if t.role == roleButton { base = 2 }
+        else if t.role == "AXLink" { base = 3 }
+        else if t.role == roleMenuBarItem { base = 6 }
+        else { base = 4 }
+        let title = t.title.lowercased()
+        if priority.contains(title) { return base }
+        return base + 10
+    }
+
+    private static func takeCode(
+        for target: HintTarget,
+        alphabet: [Character],
+        used: inout Set<String>,
+        priority: Set<String>
+    ) -> String? {
+        let alphaSet = Set(alphabet)
+        let words = words(in: target.title, alphabet: alphaSet)
+        let titleFlat = String(target.title.lowercased().filter { alphaSet.contains($0) })
+        // Single-char mnemonics stay in the focused window — not File/Edit/View.
+        let allowSingle =
+            target.role != roleMenuBarItem
+            && (target.isDefault || target.isCancel
+                || target.role == roleButton
+                || target.role == "AXLink"
+                || priority.contains(target.title.lowercased()))
+
+        var candidates: [String] = []
+        if allowSingle, let first = words.first, let c = first.first {
+            candidates.append(String(c))
+        }
+        if words.count >= 2, let first = words.first, first.count > 4 {
+            let initials = String(words.compactMap(\.first).prefix(2))
+            if initials.count == 2 { candidates.append(initials) }
+        }
+        if let first = words.first {
+            if first.count >= 2 { candidates.append(String(first.prefix(2))) }
+            if first.count >= 3 { candidates.append(String(first.prefix(3))) }
+        }
+        if titleFlat.count >= 2 { candidates.append(String(titleFlat.prefix(2))) }
+        if titleFlat.count >= 3 { candidates.append(String(titleFlat.prefix(3))) }
+
+        for candidate in candidates where !candidate.isEmpty {
+            if !used.contains(candidate), candidate.allSatisfy({ alphaSet.contains($0) }) {
+                used.insert(candidate)
+                return candidate
+            }
+        }
+
+        // Leftover singles are for the focused window only — otherwise Apple/File steal `a`/`f`.
+        if target.role != roleMenuBarItem {
             for c in alphabet {
                 let s = String(c)
                 if !used.contains(s) {
@@ -71,29 +178,32 @@ public enum HintCoder {
                     return s
                 }
             }
-            for a in alphabet {
-                for b in alphabet {
-                    let s = String([a, b])
-                    if !used.contains(s) {
-                        used.insert(s)
-                        return s
-                    }
+        }
+        for a in alphabet {
+            for b in alphabet {
+                let s = String([a, b])
+                if !used.contains(s) {
+                    used.insert(s)
+                    return s
                 }
             }
-            return nil
         }
+        return nil
+    }
 
-        for target in targets {
-            var t = target
-            // Full title (filtered to charset), not only the first glyph — so
-            // "Save"/"Settings" can become "s"/"se" and Space can confirm "s".
-            let pref = String(target.title.lowercased().filter { alphabet.contains($0) })
-            if let code = takeCode(preferred: pref.isEmpty ? nil : pref) {
-                t.code = code
-                result.append(t)
+    private static func words(in title: String, alphabet: Set<Character>) -> [String] {
+        var out: [String] = []
+        var current = ""
+        for ch in title.lowercased() {
+            if alphabet.contains(ch) {
+                current.append(ch)
+            } else if !current.isEmpty {
+                out.append(current)
+                current = ""
             }
         }
-        return result
+        if !current.isEmpty { out.append(current) }
+        return out
     }
 }
 
@@ -109,7 +219,7 @@ public enum HintLayout {
         targets: [HintTarget],
         screenBounds: CGRect
     ) -> [HintBubble] {
-        let sites = targets.map {
+        let sites = targets.filter { $0.showsLabel && !$0.code.isEmpty }.map {
             LabelSite(
                 id: $0.id,
                 point: CGPoint(x: $0.frame.midX, y: $0.frame.midY),
@@ -158,71 +268,232 @@ public enum HintLayout {
     }
 }
 
+public struct HintMatch: Equatable, Sendable, Identifiable {
+    public var target: HintTarget
+    public var score: Int
+    public var matchRange: Range<Int>?
+    public var cmdNumber: Int?
+
+    public var id: String { target.id }
+}
+
+/// Vertical placement of the hint palette. Horizontally always centered.
+public enum HintPaletteAnchor: Int, CaseIterable, Equatable, Sendable {
+    case semiBottom = 0
+    case center = 1
+    case semiTop = 2
+
+    /// Fraction of screen height for the palette center (top = 0).
+    public var yFraction: CGFloat {
+        switch self {
+        case .semiTop: 0.28
+        case .center: 0.50
+        case .semiBottom: 0.72
+        }
+    }
+
+    public mutating func toggle() {
+        self = Self(rawValue: (rawValue + 1) % Self.allCases.count) ?? .semiBottom
+    }
+}
+
 public struct HintState: Equatable, Sendable {
     public var targets: [HintTarget]
     public var typed: String
-    public var armedID: String?
+    public var selectedIndex: Int
+    public var matches: [HintMatch]
+    /// Resets to semi-bottom every time hint mode opens.
+    public var paletteAnchor: HintPaletteAnchor
+    /// Holding ⌘ shows ⌘1–9 on bubbles/palette even before the query is long enough.
+    public var commandHeld: Bool
 
     public init(targets: [HintTarget] = []) {
         self.targets = targets
         self.typed = ""
-        self.armedID = nil
+        self.selectedIndex = 0
+        self.matches = Self.rank(targets: targets, query: "")
+        self.paletteAnchor = .semiBottom
+        self.commandHeld = false
+        applyCmdNumbers()
     }
 
+    /// Palette + window bubbles show ⌘N when the query is long enough, or while ⌘ is held.
+    public var showsCmdNumbers: Bool {
+        typed.count >= HintCoder.cmdNumberMinQuery || commandHeld
+    }
+
+    public func cmdNumber(forTargetID id: String) -> Int? {
+        guard showsCmdNumbers else { return nil }
+        return matches.first(where: { $0.target.id == id })?.cmdNumber
+    }
+
+    public mutating func setCommandHeld(_ held: Bool) {
+        guard commandHeld != held else { return }
+        commandHeld = held
+        applyCmdNumbers()
+    }
+
+    /// Stamp ⌘1–9 / ⌘0 onto the current match list (or clear them).
+    public mutating func applyCmdNumbers() {
+        for i in matches.indices {
+            matches[i].cmdNumber = nil
+        }
+        guard showsCmdNumbers else { return }
+        for i in matches.indices.prefix(9) {
+            matches[i].cmdNumber = i + 1
+        }
+        if matches.count >= 10 {
+            matches[9].cmdNumber = 0
+        }
+    }
+
+    public var selectedTarget: HintTarget? {
+        // Empty query: nothing is armed — Space cancels instead of clicking the top row.
+        guard !typed.isEmpty, matches.indices.contains(selectedIndex) else { return nil }
+        return matches[selectedIndex].target
+    }
+
+    public var selectedMatch: HintMatch? {
+        guard !typed.isEmpty, matches.indices.contains(selectedIndex) else { return nil }
+        return matches[selectedIndex]
+    }
+
+    /// Bubbles that still match the query (empty query = all labeled).
     public var visibleTargets: [HintTarget] {
-        if typed.isEmpty { return targets }
-        return targets.filter { $0.code.hasPrefix(typed) }
+        if typed.isEmpty {
+            return targets.filter { $0.showsLabel && !$0.code.isEmpty }
+        }
+        return matches.map(\.target).filter { $0.showsLabel && !$0.code.isEmpty }
     }
 
-    /// How to draw `code` for the keys typed so far.
-    /// An exact code is highlighted even when a longer code still shares it —
-    /// space can already fire that target. Longer codes tint only the typed prefix.
     public func style(for code: String) -> HintCodeStyle {
-        guard !typed.isEmpty, code.hasPrefix(typed) else {
+        guard !typed.isEmpty, code.hasPrefix(typed.lowercased()) else {
             return HintCodeStyle(highlighted: false, tintedCount: 0)
         }
-        if code == typed {
+        if code == typed.lowercased() {
             return HintCodeStyle(highlighted: true, tintedCount: 0)
         }
         return HintCodeStyle(highlighted: false, tintedCount: typed.count)
     }
 
     public mutating func typeCharacter(_ ch: Character) -> HintTypeResult {
-        if armedID != nil { return .ignored }
         let next = typed + String(ch).lowercased()
-        let matches = targets.filter { $0.code.hasPrefix(next) }
-        if matches.isEmpty { return .ignored }
+        let ranked = Self.rank(targets: targets, query: next)
+        guard !ranked.isEmpty || next.isEmpty else { return .ignored }
+        // Always accept the character once something still matches, or when query is building
+        // toward a fuzzy hit that needs more letters — drop if nothing matches.
+        guard !ranked.isEmpty else { return .ignored }
         typed = next
-        if matches.count == 1, matches[0].code == next {
-            armedID = matches[0].id
-            return .armed(matches[0])
+        matches = ranked
+        selectedIndex = 0
+        applyCmdNumbers()
+        if let first = ranked.first, first.target.code == next {
+            return .armed(first.target)
         }
         return .narrowed
     }
 
-    /// Arm the target whose code equals `typed` exactly — needed when a
-    /// single-char code shares a prefix with longer codes (space confirms it).
+    /// Arm / select the target whose code equals `typed` exactly.
+    /// Empty query never arms — caller should cancel hint mode instead.
     @discardableResult
     public mutating func armExactMatch() -> Bool {
-        if let armedID, targets.contains(where: { $0.id == armedID }) {
+        guard !typed.isEmpty else { return false }
+        if let selected = selectedTarget, selected.code == typed.lowercased() {
             return true
         }
-        guard !typed.isEmpty else { return false }
-        guard let match = targets.first(where: { $0.code == typed }) else { return false }
-        armedID = match.id
-        return true
+        if let idx = matches.firstIndex(where: { $0.target.code == typed.lowercased() }) {
+            selectedIndex = idx
+            return true
+        }
+        return selectedTarget != nil
     }
 
     public mutating func backspace() {
-        armedID = nil
         if !typed.isEmpty {
             typed.removeLast()
         }
+        matches = Self.rank(targets: targets, query: typed)
+        selectedIndex = min(selectedIndex, max(0, matches.count - 1))
+        applyCmdNumbers()
     }
 
-    public var armedTarget: HintTarget? {
-        guard let armedID else { return nil }
-        return targets.first { $0.id == armedID }
+    public mutating func moveSelection(_ delta: Int) {
+        guard !matches.isEmpty else { return }
+        selectedIndex = (selectedIndex + delta + matches.count) % matches.count
+    }
+
+    public mutating func selectCmdNumber(_ n: Int) -> HintTarget? {
+        guard showsCmdNumbers else { return nil }
+        guard let match = matches.first(where: { $0.cmdNumber == n }) else { return nil }
+        if let idx = matches.firstIndex(where: { $0.id == match.id }) {
+            selectedIndex = idx
+        }
+        return match.target
+    }
+
+    /// Selected row's green box.
+    public var highlightFrame: CGRect? {
+        guard let match = selectedMatch else { return nil }
+        switch match.target.action {
+        case .click:
+            return HintFuzzy.highlightFrame(
+                label: match.target.title,
+                range: match.matchRange,
+                frame: match.target.frame
+            )
+        case .menu, .window, .app:
+            return match.target.frame.isEmpty ? nil : match.target.frame
+        }
+    }
+
+    public var armedTarget: HintTarget? { selectedTarget }
+
+    public static func rank(targets: [HintTarget], query: String) -> [HintMatch] {
+        if query.isEmpty {
+            // Empty query: focused-window labels + open windows first; menu bar is lower.
+            func isPreferred(_ t: HintTarget) -> Bool {
+                if t.role == roleMenuBarItem { return false }
+                if t.showsLabel { return true }
+                if case .window = t.action { return true }
+                return false
+            }
+            let preferred = targets.filter(isPreferred)
+            let rest = targets.filter { !isPreferred($0) }
+            let ordered = (preferred + rest).prefix(40)
+            return ordered.enumerated().map {
+                HintMatch(target: $0.element, score: 0, matchRange: nil, cmdNumber: nil)
+            }
+        }
+
+        var scored: [(match: HintMatch, order: Int)] = []
+        let qNorm = HintFuzzy.normalizeQuery(query)
+        let qLower = query.lowercased()
+        for (order, t) in targets.enumerated() {
+            guard let s = HintFuzzy.score(query: query, label: t.title, code: t.code) else { continue }
+            // Menu bar titles like "Apple" must not win on a single typed letter when the
+            // bubble says `l`/`ap` — only a code prefix counts until the query is longer.
+            if t.role == roleMenuBarItem, qNorm.count < HintCoder.cmdNumberMinQuery {
+                let codeHit = !t.code.isEmpty
+                    && (t.code.hasPrefix(qLower) || t.code.hasPrefix(qNorm))
+                if !codeHit { continue }
+            }
+            scored.append(
+                (
+                    HintMatch(target: t, score: s.value, matchRange: s.matchRange, cmdNumber: nil),
+                    order
+                )
+            )
+        }
+        // Equal fuzzy score → earlier target wins (windows/apps are stored MRU-first).
+        scored.sort {
+            if $0.match.score != $1.match.score { return $0.match.score > $1.match.score }
+            if $0.match.target.title.count != $1.match.target.title.count {
+                return $0.match.target.title.count < $1.match.target.title.count
+            }
+            return $0.order < $1.order
+        }
+        // ⌘N stamps happen in HintState.applyCmdNumbers (query length or ⌘ held).
+        return scored.map(\.match)
     }
 }
 
@@ -253,3 +524,7 @@ struct VisionHintSource: HintSource {
     init() {}
     func collect() async -> [HintTarget] { [] }
 }
+
+// Role strings without importing ApplicationServices into Core.
+private let roleButton = "AXButton"
+private let roleMenuBarItem = "AXMenuBarItem"

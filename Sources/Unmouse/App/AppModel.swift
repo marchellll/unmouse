@@ -165,6 +165,14 @@ final class AppModel {
                 loaded.colors.freeDotHalo = "#FFFFFF99"
                 try ConfigIO.save(loaded)
             }
+            // Return matches Space for left click in every mode (older configs had Space only).
+            var migratedClicks = false
+            if Self.ensureReturnAlongsideSpace(&loaded.bindings.grid.leftClick) { migratedClicks = true }
+            if Self.ensureReturnAlongsideSpace(&loaded.bindings.free.leftClick) { migratedClicks = true }
+            if Self.ensureReturnAlongsideSpace(&loaded.bindings.hint.leftClick) { migratedClicks = true }
+            if migratedClicks {
+                try ConfigIO.save(loaded)
+            }
             let errors = ConfigValidator.validate(loaded)
             applyRuntimeConfig(loaded, errors: errors, replaceConfig: true)
         } catch {
@@ -267,6 +275,18 @@ final class AppModel {
         config.grid.cols = dimensions.cols
         config.grid.subRows = dimensions.rows
         config.grid.subCols = dimensions.cols
+    }
+
+    /// If Space is a left-click binding, Return is too (unless already listed).
+    @discardableResult
+    private static func ensureReturnAlongsideSpace(_ keys: inout [String]) -> Bool {
+        let lower = Set(keys.map { $0.lowercased() })
+        guard lower.contains("space"),
+              !lower.contains("return"),
+              !lower.contains("enter")
+        else { return false }
+        keys.append("return")
+        return true
     }
 
     private func loadBundledDefault() throws -> String {

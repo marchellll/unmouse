@@ -31,7 +31,7 @@ accel_seconds = 3.5  # seconds that curve runs for both
 fast_multiplier = 3.0
 slow_multiplier = 0.25
 scroll_speed = 200.0  # top scroll lines per second; ramps on that curve
-scroll_reverse_x = false  # flip left/right
+scroll_reverse_x = true  # flip left/right
 scroll_reverse_y = false  # flip up/down
 exit_on_action = false  # chord, click, or other key leaves free mode
 halo_attention = "pulse"   # none | pulse | ping | breathe
@@ -88,7 +88,7 @@ hint_mode = ["command+shift+space"]
 
 [bindings.grid]
 back = ["delete", "backspace"]
-left_click = ["space"]                # exit and left click; if a drag is held, drop it here instead
+left_click = ["space", "return"]                # exit and left click; if a drag is held, drop it here instead
 right_click = ["q"]
 middle_click = ["s"]
 move_only = ["d"]            # exit, move the cursor, do not click
@@ -108,15 +108,14 @@ scroll_down = [";"]
 scroll_up = [":"]
 scroll_right = ["!"]
 toggle_drag = ["a"]
-left_click = ["space"]                # stays in free mode; if a drag is held, drop it and stay
+left_click = ["space", "return"]                # stays in free mode; if a drag is held, drop it and stay
 right_click = ["q"]
 middle_click = ["s"]
 cancel = ["escape"]
 
 [bindings.hint]
-left_click = ["space"]                # armed hint: click and exit
-right_click = ["q"]        # armed hint: right click and exit
-move_no_action = ["d"]       # armed hint: move, do not click
+left_click = ["space", "return"]                # armed hint: click and exit
+right_click = ["shift+space", "shift+return"]  # selected hint: right click and exit
 to_free = ["option_left"]             # armed hint: move there and enter free mode
 cancel = ["escape"]
 back = ["delete", "backspace"]

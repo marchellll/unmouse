@@ -85,8 +85,17 @@ struct ConfigTests {
     @Test func hintShortcutOverlap() {
         var c = AppConfig.default
         c.hint.chars = "asd"
-        c.bindings.hint.moveNoAction = ["a"]
+        c.bindings.hint.leftClick = ["a"]
         #expect(ConfigValidator.validate(c).contains(.hintShortcutOverlapsChars("a")))
+    }
+
+    @Test func hintBareLetterClickWarns() {
+        var c = AppConfig.default
+        c.hint.chars = "qwerty" // no `a` — overlap check stays quiet
+        c.bindings.hint.rightClick = ["a"]
+        let errors = ConfigValidator.validate(c)
+        #expect(errors.contains(.hintClickStealsTyping("a")))
+        #expect(errors.contains { !$0.blocksApply && $0 == .hintClickStealsTyping("a") })
     }
 
     @Test func scrollReverseRoundTrips() throws {
@@ -110,12 +119,12 @@ struct ConfigTests {
         #expect(roundTrip.free.exitOnAction)
     }
 
-    @Test func scrollReverseDefaultsOff() throws {
+    @Test func scrollReverseDefaults() throws {
         let text = try ConfigIO.encode(AppConfig.default)
             .replacingOccurrences(of: "scroll_reverse_x", with: "ignored_reverse_x")
             .replacingOccurrences(of: "scroll_reverse_y", with: "ignored_reverse_y")
         let decoded = try ConfigIO.decode(from: text)
-        #expect(decoded.free.scrollReverseX == false)
+        #expect(decoded.free.scrollReverseX == true)
         #expect(decoded.free.scrollReverseY == false)
     }
 

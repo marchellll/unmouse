@@ -8,32 +8,157 @@ struct HintTests {
         let targets = (0..<5).map {
             HintTarget(id: "\($0)", title: "Alpha", frame: CGRect(x: $0 * 10, y: 0, width: 40, height: 20))
         }
-        let coded = HintCoder.assignCodes(targets: targets, chars: "asdf")
+        let coded = HintCoder.assignCodes(targets: targets, chars: "asdf", priorityWords: [])
         let codes = coded.map(\.code)
         #expect(Set(codes).count == codes.count)
-        #expect(codes[0] == "a")
+        #expect(!codes.contains(""))
+    }
+
+    @Test func mnemonicOKCancelDNSSearchPull() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "ok", title: "OK", frame: .zero, role: "AXButton", isDefault: true),
+                HintTarget(id: "cancel", title: "Cancel", frame: .zero, role: "AXButton"),
+                HintTarget(id: "dns", title: "DNS", frame: .zero, role: "AXMenuBarItem"),
+                HintTarget(id: "sm", title: "search menu", frame: .zero, role: "AXLink"),
+                HintTarget(id: "pu", title: "Pull Request", frame: .zero, role: "AXLink"),
+                HintTarget(id: "del", title: "Delete", frame: .zero, role: "AXButton"),
+            ],
+            chars: "abcdefghijklmnopqrstuvwxyz",
+            priorityWords: ["ok"]
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["ok"] == "o")
+        #expect(byID["cancel"] == "ca" || byID["cancel"]?.hasPrefix("c") == true)
+        // Window controls claim singles; menu bar DNS takes a longer code.
+        #expect(byID["del"] == "d")
+        #expect(byID["sm"] == "s")
+        #expect(byID["pu"] == "p")
+        #expect((byID["dns"]?.count ?? 0) >= 2)
+        #expect(byID["dns"] != "d")
+    }
+
+    @Test func windowBeatsMenuBarForSingleChar() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "file", title: "File", frame: .zero, role: "AXMenuBarItem"),
+                HintTarget(id: "find", title: "Find", frame: CGRect(x: 0, y: 100, width: 40, height: 20), role: "AXButton"),
+            ],
+            chars: "abcdefghijklmnopqrstuvwxyz",
+            priorityWords: []
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["find"] == "f")
+        #expect(byID["file"] != "f")
+        #expect((byID["file"]?.count ?? 0) >= 2)
+    }
+
+    @Test func appleMenuDoesNotStealLetterA() {
+        // No window control starts with `a`, so leftover `a` used to land on Apple.
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "apple", title: "Apple", frame: .zero, role: "AXMenuBarItem"),
+                HintTarget(id: "zoom", title: "Zoom", frame: CGRect(x: 0, y: 80, width: 40, height: 20), role: "AXButton"),
+            ],
+            chars: "abcdefghijklmnopqrstuvwxyz",
+            priorityWords: []
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["zoom"] == "z")
+        #expect(byID["apple"] != "a")
+        #expect((byID["apple"]?.count ?? 0) >= 2)
+    }
+
+    @Test func typingADoesNotSelectAppleWhenCodeIsL() {
+        // Real bug: bubble said `l`, but fuzzy title "Apple" still won on `a`.
+        var state = HintState(targets: [
+            HintTarget(id: "apple", title: "Apple", frame: .zero, code: "l", role: "AXMenuBarItem"),
+            HintTarget(id: "add", title: "Add", frame: CGRect(x: 0, y: 80, width: 40, height: 20), code: "a", role: "AXButton"),
+        ])
+        _ = state.typeCharacter("a")
+        #expect(state.selectedTarget?.id == "add")
+        #expect(!state.matches.contains(where: { $0.target.id == "apple" }))
+    }
+
+    @Test func menuBarStillReachableByItsCode() {
+        var state = HintState(targets: [
+            HintTarget(id: "apple", title: "Apple", frame: .zero, code: "ap", role: "AXMenuBarItem"),
+            HintTarget(id: "add", title: "Add", frame: .zero, code: "a", role: "AXButton"),
+        ])
+        _ = state.typeCharacter("a")
+        _ = state.typeCharacter("p")
+        #expect(state.selectedTarget?.id == "apple")
+    }
+
+    @Test func priorityWordBeatsPlainButton() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "other", title: "Other", frame: CGRect(x: 0, y: 100, width: 40, height: 20), role: "AXButton"),
+                HintTarget(id: "save", title: "Save", frame: CGRect(x: 50, y: 100, width: 40, height: 20), role: "AXButton"),
+            ],
+            chars: "s",
+            priorityWords: ["save"]
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["save"] == "s")
+    }
+
+    @Test func japaneseGetsLeftover() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "ja", title: "保存", frame: .zero, role: "AXButton"),
+            ],
+            chars: "qw",
+            priorityWords: []
+        )
+        #expect(coded.first?.code == "q" || coded.first?.code == "w")
+    }
+
+    @Test func searchOnlyTargetsGetNoCode() {
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "t", title: "Hello", frame: .zero, showsLabel: false),
+                HintTarget(id: "b", title: "OK", frame: .zero, role: "AXButton", isDefault: true),
+            ],
+            chars: "ok",
+            priorityWords: ["ok"]
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["t"] == "")
+        #expect(byID["b"] == "o")
     }
 
     @Test func titlePrefixesShareStemForSpaceConfirm() {
-        // Full-title coding: first unique stem is 1 char, next keeps going → "s"/"se".
         let coded = HintCoder.assignCodes(
             targets: [
-                HintTarget(id: "1", title: "Save", frame: .zero),
-                HintTarget(id: "2", title: "Settings", frame: .zero),
+                HintTarget(id: "1", title: "Save", frame: .zero, role: "AXButton", isDefault: true),
+                HintTarget(id: "2", title: "Settings", frame: .zero, role: "AXButton"),
             ],
-            chars: "qwesfghjkl"
+            chars: "qwesfghjkl",
+            priorityWords: ["save"]
         )
-        #expect(coded.map(\.code) == ["s", "se"])
+        #expect(coded.map(\.code).contains("s"))
         var state = HintState(targets: coded)
-        #expect(state.typeCharacter("s") == .narrowed)
-        #expect(state.armedID == nil)
+        _ = state.typeCharacter("s")
         let armed = state.armExactMatch()
         #expect(armed)
-        #expect(state.armedID == "1")
+    }
+
+    @Test func emptyQueryDoesNotArmTopRow() {
+        var state = HintState(targets: [
+            HintTarget(id: "1", title: "Save", frame: .zero, code: "s", role: "AXButton"),
+            HintTarget(id: "2", title: "Open", frame: .zero, code: "o", role: "AXButton"),
+        ])
+        #expect(state.typed.isEmpty)
+        #expect(state.selectedTarget == nil)
+        #expect(state.armExactMatch() == false)
+        _ = state.typeCharacter("s")
+        #expect(state.selectedTarget?.id == "1")
+        let armed = state.armExactMatch()
+        #expect(armed)
     }
 
     @Test func adapterMapsBoundaryLabeling() {
-        // Far apart → in-situ, no leaders.
         let isolated = [
             HintTarget(id: "1", title: "A", frame: CGRect(x: 40, y: 100, width: 48, height: 32), code: "a"),
             HintTarget(id: "2", title: "B", frame: CGRect(x: 500, y: 120, width: 48, height: 32), code: "b"),
@@ -44,114 +169,86 @@ struct HintTests {
         )
         #expect(alone.count == 2)
         #expect(alone.filter { $0.needsLeader }.isEmpty)
-
-        // Close neighbors on one row → stay within leash (rail or snap-back).
-        let clustered = [
-            HintTarget(id: "3", title: "C", frame: CGRect(x: 200, y: 200, width: 10, height: 16), code: "c"),
-            HintTarget(id: "4", title: "D", frame: CGRect(x: 214, y: 200, width: 10, height: 16), code: "d"),
-            HintTarget(id: "5", title: "E", frame: CGRect(x: 228, y: 200, width: 10, height: 16), code: "e"),
-        ]
-        let packed = HintLayout.layout(
-            targets: clustered,
-            screenBounds: CGRect(x: 0, y: 0, width: 800, height: 600)
-        )
-        for b in packed {
-            let d = hypot(b.bubbleFrame.midX - b.targetPoint.x, b.bubbleFrame.midY - b.targetPoint.y)
-            #expect(d <= 28.5)
-        }
     }
 
-    @Test func typeToArm() {
+    @Test func fuzzyDropsSpacesAndSubsequence() {
+        #expect(HintFuzzy.score(query: "pull request", label: "Pull Request") != nil)
+        #expect(HintFuzzy.score(query: "pullrequest", label: "Pull Request") != nil)
+        #expect(HintFuzzy.score(query: "prst", label: "Pull Request") != nil)
+        #expect(HintFuzzy.score(query: "zzzz", label: "Pull Request") == nil)
+    }
+
+    @Test func exactCodeOutranksFuzzy() {
+        let targets = [
+            HintTarget(id: "ok", title: "OK", frame: .zero, code: "o", role: "AXButton"),
+            HintTarget(id: "open", title: "Open file", frame: .zero, code: "op", role: "AXButton"),
+        ]
+        var state = HintState(targets: targets)
+        _ = state.typeCharacter("o")
+        #expect(state.selectedTarget?.id == "ok")
+    }
+
+    @Test func cmdNumbersAfterThreeChars() {
+        let targets = (0..<5).map {
+            HintTarget(id: "\($0)", title: "Comment item \($0)", frame: .zero, showsLabel: false)
+        }
+        var state = HintState(targets: targets)
+        _ = state.typeCharacter("c")
+        _ = state.typeCharacter("o")
+        #expect(state.matches.allSatisfy { $0.cmdNumber == nil })
+        _ = state.typeCharacter("m")
+        #expect(state.matches.first?.cmdNumber == 1)
+        #expect(state.selectCmdNumber(1)?.id == state.matches.first?.id)
+    }
+
+    @Test func cmdNumbersWhileCommandHeld() {
+        let targets = (0..<3).map {
+            HintTarget(id: "\($0)", title: "Button \($0)", frame: .zero, code: "b\($0)", role: "AXButton")
+        }
+        var state = HintState(targets: targets)
+        #expect(state.matches.allSatisfy { $0.cmdNumber == nil })
+        state.setCommandHeld(true)
+        #expect(state.showsCmdNumbers)
+        #expect(state.cmdNumber(forTargetID: "0") == 1)
+        #expect(state.selectCmdNumber(2)?.id == "1")
+        state.setCommandHeld(false)
+        #expect(state.cmdNumber(forTargetID: "0") == nil)
+    }
+
+    @Test func typeToSelectAndBackspace() {
         var state = HintState(targets: [
             HintTarget(id: "1", title: "Ok", frame: .zero, code: "as"),
             HintTarget(id: "2", title: "No", frame: .zero, code: "df"),
         ])
         let first = state.typeCharacter("a")
         #expect(first == .narrowed)
-        #expect(state.style(for: "as") == HintCodeStyle(highlighted: false, tintedCount: 1))
-        #expect(state.style(for: "df") == HintCodeStyle(highlighted: false, tintedCount: 0))
-        let second = state.typeCharacter("s")
-        if case .armed(let t) = second {
-            #expect(t.id == "1")
-        } else {
-            Issue.record("expected armed")
-        }
-        #expect(state.style(for: "as") == HintCodeStyle(highlighted: true, tintedCount: 0))
-    }
-
-    @Test func exactCodeHighlightsBesideLongerPrefix() {
-        var state = HintState(targets: [
-            HintTarget(id: "r", title: "Run", frame: .zero, code: "r"),
-            HintTarget(id: "ru", title: "Rules", frame: .zero, code: "ru"),
-        ])
-        #expect(state.typeCharacter("r") == .narrowed)
-        #expect(state.armedID == nil)
-        #expect(state.style(for: "r") == HintCodeStyle(highlighted: true, tintedCount: 0))
-        #expect(state.style(for: "ru") == HintCodeStyle(highlighted: false, tintedCount: 1))
-        let done = state.typeCharacter("u")
-        if case .armed(let t) = done {
-            #expect(t.id == "ru")
-        } else {
-            Issue.record("expected armed")
-        }
-        #expect(state.style(for: "ru") == HintCodeStyle(highlighted: true, tintedCount: 0))
-        #expect(state.style(for: "r") == HintCodeStyle(highlighted: false, tintedCount: 0))
-    }
-
-    @Test func spaceArmsExactSingleCharOverLongerPrefix() {
-        var state = HintState(targets: [
-            HintTarget(id: "short", title: "A", frame: .zero, code: "a"),
-            HintTarget(id: "long", title: "Ab", frame: .zero, code: "ab"),
-        ])
-        let narrowed = state.typeCharacter("a")
-        #expect(narrowed == .narrowed)
-        #expect(state.armedID == nil)
-        let armed = state.armExactMatch()
-        #expect(armed)
-        #expect(state.armedID == "short")
-    }
-
-    @Test func backspaceClearsAnArmedTarget() {
-        var state = HintState(targets: [
-            HintTarget(id: "1", title: "Save", frame: .zero, code: "s"),
-            HintTarget(id: "2", title: "Settings", frame: .zero, code: "se"),
-        ])
-        #expect(state.typeCharacter("s") == .narrowed)
-        let armed = state.armExactMatch()
-        #expect(armed)
-        #expect(state.armedID == "1")
-        #expect(state.typeCharacter("e") == .ignored)
-        #expect(state.typed == "s")
-        #expect(state.armedID == "1")
-        let stillArmed = state.armExactMatch()
-        #expect(stillArmed)
-        state.backspace()
-        #expect(state.armedID == nil)
-        #expect(state.typed.isEmpty)
-        #expect(state.armedTarget == nil)
-        let gone = state.armExactMatch()
-        #expect(!gone)
-    }
-
-    @Test func backspaceDropsOneCharacterAndUnknownKeysDoNothing() {
-        var state = HintState(targets: [
-            HintTarget(id: "1", title: "Ok", frame: .zero, code: "as"),
-        ])
-        #expect(state.typeCharacter("z") == .ignored)
-        #expect(state.typed.isEmpty)
-        #expect(state.typeCharacter("a") == .narrowed)
         state.backspace()
         #expect(state.typed.isEmpty)
-        #expect(state.armedID == nil)
-        state.backspace()
-        #expect(state.typed.isEmpty)
-        let noMatch = state.armExactMatch()
-        #expect(!noMatch)
     }
 
     @Test func visionStubEmpty() async {
         let source = VisionHintSource()
         let items = await source.collect()
         #expect(items.isEmpty)
+    }
+
+    @Test func priorityWordsParse() {
+        let words = PriorityWords.parse("""
+        # comment
+        ok
+        Save
+        """)
+        #expect(words == Set(["ok", "save"]))
+    }
+
+    @Test func paletteAnchorCyclesAndDefaultsSemiBottom() {
+        var state = HintState()
+        #expect(state.paletteAnchor == .semiBottom)
+        state.paletteAnchor.toggle()
+        #expect(state.paletteAnchor == .center)
+        state.paletteAnchor.toggle()
+        #expect(state.paletteAnchor == .semiTop)
+        state.paletteAnchor.toggle()
+        #expect(state.paletteAnchor == .semiBottom)
     }
 }

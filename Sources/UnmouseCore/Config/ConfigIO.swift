@@ -9,6 +9,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
     case duplicateShortcut(mode: String, shortcut: String)
     case gridShortcutOverlapsChars(String)
     case hintShortcutOverlapsChars(String)
+    /// Bare letter as hint left/right click steals that key from typing/search.
+    case hintClickStealsTyping(String)
     case parse(String)
     case invalidShortcut(String)
 
@@ -28,6 +30,8 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
             "grid shortcut \(s) duplicates a grid char"
         case .hintShortcutOverlapsChars(let s):
             "hint shortcut \(s) overlaps hint chars"
+        case .hintClickStealsTyping(let s):
+            "hint click \(s) is a bare letter — use shift+space (or similar) so letters type/search"
         case .parse(let m):
             m
         case .invalidShortcut(let m):
@@ -35,10 +39,12 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
         }
     }
 
-    /// Grid-letter clashes stay visible and still let the rest of the config load.
+    /// Soft clashes stay visible and still let the rest of the config load.
     public var blocksApply: Bool {
-        if case .gridShortcutOverlapsChars = self { return false }
-        return true
+        switch self {
+        case .gridShortcutOverlapsChars, .hintClickStealsTyping: return false
+        default: return true
+        }
     }
 }
 
@@ -105,18 +111,28 @@ public enum ConfigValidator {
             b.free.leftClick, b.free.rightClick, b.free.middleClick, b.free.cancel,
         ])
         checkDuplicates(mode: "hint", groups: [
-            b.hint.leftClick, b.hint.rightClick, b.hint.moveNoAction, b.hint.toFree,
+            b.hint.leftClick, b.hint.rightClick, b.hint.toFree,
             b.hint.cancel, b.hint.back,
         ])
 
         let hintChars = Set(config.hint.chars.lowercased())
-        for raw in b.hint.leftClick + b.hint.rightClick + b.hint.moveNoAction + b.hint.toFree {
+        for raw in b.hint.leftClick + b.hint.rightClick + b.hint.toFree {
             if let sc = try? ShortcutParser.parse(raw),
                sc.modifiers.isEmpty,
                let c = sc.key.character,
                hintChars.contains(c)
             {
                 errors.append(.hintShortcutOverlapsChars(raw))
+            }
+        }
+        // Hint mode types any letter for codes/search. Free/grid's bare `a` right-click
+        // must not be copied here or Space-less `a` right-clicks the selected row and exits.
+        for raw in b.hint.leftClick + b.hint.rightClick {
+            if let sc = try? ShortcutParser.parse(raw),
+               sc.modifiers.isEmpty,
+               case .letter = sc.key
+            {
+                errors.append(.hintClickStealsTyping(raw))
             }
         }
 

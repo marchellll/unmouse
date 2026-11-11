@@ -45,7 +45,7 @@ public struct GridBindings: Codable, Sendable, Equatable {
 
     public init(
         back: [String] = ["delete", "backspace"],
-        leftClick: [String] = ["space"],
+        leftClick: [String] = ["space", "return"],
         rightClick: [String] = ["a"],
         middleClick: [String] = ["s"],
         moveOnly: [String] = ["d"],
@@ -110,7 +110,7 @@ public struct FreeBindings: Codable, Sendable, Equatable {
         scrollLeft: [String] = ["m"],
         scrollRight: [String] = ["/"],
         toggleDrag: [String] = ["q"],
-        leftClick: [String] = ["space"],
+        leftClick: [String] = ["space", "return"],
         rightClick: [String] = ["a"],
         middleClick: [String] = ["s"],
         cancel: [String] = ["escape"]
@@ -154,7 +154,6 @@ public struct FreeBindings: Codable, Sendable, Equatable {
 public struct HintBindings: Codable, Sendable, Equatable {
     public var leftClick: [String]
     public var rightClick: [String]
-    public var moveNoAction: [String]
     public var toFree: [String]
     public var cancel: [String]
     public var back: [String]
@@ -162,22 +161,21 @@ public struct HintBindings: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case leftClick = "left_click"
         case rightClick = "right_click"
-        case moveNoAction = "move_no_action"
         case toFree = "to_free"
         case cancel, back
+        // Old key kept for decode so a stale config.toml still loads.
+        case moveNoAction = "move_no_action"
     }
 
     public init(
-        leftClick: [String] = ["space"],
-        rightClick: [String] = ["a"],
-        moveNoAction: [String] = ["d"],
+        leftClick: [String] = ["space", "return"],
+        rightClick: [String] = ["shift+space", "shift+return"],
         toFree: [String] = ["option_left"],
         cancel: [String] = ["escape"],
         back: [String] = ["delete", "backspace"]
     ) {
         self.leftClick = leftClick
         self.rightClick = rightClick
-        self.moveNoAction = moveNoAction
         self.toFree = toFree
         self.cancel = cancel
         self.back = back
@@ -185,12 +183,22 @@ public struct HintBindings: Codable, Sendable, Equatable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? ["space"]
-        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? ["a"]
-        moveNoAction = try c.decodeIfPresent([String].self, forKey: .moveNoAction) ?? ["d"]
+        leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? ["space", "return"]
+        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? ["shift+space", "shift+return"]
         toFree = try c.decodeIfPresent([String].self, forKey: .toFree) ?? ["option_left"]
         cancel = try c.decodeIfPresent([String].self, forKey: .cancel) ?? ["escape"]
         back = try c.decodeIfPresent([String].self, forKey: .back) ?? ["delete", "backspace"]
+        // move_no_action intentionally ignored.
+        _ = try c.decodeIfPresent([String].self, forKey: .moveNoAction)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(leftClick, forKey: .leftClick)
+        try c.encode(rightClick, forKey: .rightClick)
+        try c.encode(toFree, forKey: .toFree)
+        try c.encode(cancel, forKey: .cancel)
+        try c.encode(back, forKey: .back)
     }
 }
 
