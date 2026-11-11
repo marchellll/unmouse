@@ -310,7 +310,8 @@ public struct HintState: Equatable, Sendable {
     public init(targets: [HintTarget] = []) {
         self.targets = targets
         self.typed = ""
-        self.selectedIndex = 0
+        // No auto-select on empty query — Tab/↑↓ pick a row; Space with none cancels.
+        self.selectedIndex = -1
         self.matches = Self.rank(targets: targets, query: "")
         self.paletteAnchor = .semiBottom
         self.commandHeld = false
@@ -348,22 +349,44 @@ public struct HintState: Equatable, Sendable {
     }
 
     public var selectedTarget: HintTarget? {
-        // Empty query: nothing is armed — Space cancels instead of clicking the top row.
-        guard !typed.isEmpty, matches.indices.contains(selectedIndex) else { return nil }
+        guard matches.indices.contains(selectedIndex) else { return nil }
         return matches[selectedIndex].target
     }
 
     public var selectedMatch: HintMatch? {
-        guard !typed.isEmpty, matches.indices.contains(selectedIndex) else { return nil }
+        guard matches.indices.contains(selectedIndex) else { return nil }
         return matches[selectedIndex]
     }
 
-    /// Bubbles that still match the query (empty query = all labeled).
-    public var visibleTargets: [HintTarget] {
-        if typed.isEmpty {
-            return targets.filter { $0.showsLabel && !$0.code.isEmpty }
+    /// Bubbles drawn on screen. Empty query = mnemonic controls; typing / ⌘N also
+    /// includes framed search hits (Obsidian text, etc.) so palette rows get labels.
+    public var visibleTargets: [HintTarget] { bubbleTargets }
+
+    /// Targets to feed `HintLayout` right now.
+    public var bubbleTargets: [HintTarget] {
+        var byID: [String: HintTarget] = [:]
+        for t in targets where t.showsLabel && !t.code.isEmpty {
+            byID[t.id] = t
         }
-        return matches.map(\.target).filter { $0.showsLabel && !$0.code.isEmpty }
+        let includeSearch = !typed.isEmpty || showsCmdNumbers
+        guard includeSearch else { return Array(byID.values) }
+
+        for m in matches {
+            let t = m.target
+            guard Self.hasBubbleGeometry(t.frame) else { continue }
+            if t.showsLabel, !t.code.isEmpty { continue }
+            // Search-only (no mnemonic): bubble only when stamped ⌘N — never a bare "·".
+            guard let n = m.cmdNumber else { continue }
+            var copy = t
+            if copy.code.isEmpty { copy.code = String(n) }
+            copy.showsLabel = true
+            byID[t.id] = copy
+        }
+        return Array(byID.values)
+    }
+
+    public static func hasBubbleGeometry(_ frame: CGRect) -> Bool {
+        !frame.isNull && !frame.isInfinite && frame.width > 4 && frame.height > 4
     }
 
     public func style(for code: String) -> HintCodeStyle {
@@ -393,11 +416,12 @@ public struct HintState: Equatable, Sendable {
         return .narrowed
     }
 
-    /// Arm / select the target whose code equals `typed` exactly.
-    /// Empty query never arms — caller should cancel hint mode instead.
+    /// Arm the current selection. Empty query only arms after Tab/↑↓ picked a row.
     @discardableResult
     public mutating func armExactMatch() -> Bool {
-        guard !typed.isEmpty else { return false }
+        if typed.isEmpty {
+            return selectedTarget != nil
+        }
         if let selected = selectedTarget, selected.code == typed.lowercased() {
             return true
         }
@@ -413,12 +437,22 @@ public struct HintState: Equatable, Sendable {
             typed.removeLast()
         }
         matches = Self.rank(targets: targets, query: typed)
-        selectedIndex = min(selectedIndex, max(0, matches.count - 1))
+        if typed.isEmpty {
+            selectedIndex = -1
+        } else if !matches.isEmpty {
+            selectedIndex = min(max(selectedIndex, 0), matches.count - 1)
+        } else {
+            selectedIndex = -1
+        }
         applyCmdNumbers()
     }
 
     public mutating func moveSelection(_ delta: Int) {
         guard !matches.isEmpty else { return }
+        if selectedIndex < 0 {
+            selectedIndex = delta >= 0 ? 0 : matches.count - 1
+            return
+        }
         selectedIndex = (selectedIndex + delta + matches.count) % matches.count
     }
 

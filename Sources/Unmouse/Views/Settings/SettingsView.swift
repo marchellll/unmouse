@@ -421,7 +421,7 @@ struct SettingsView: View {
             bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode. Space and Return both work.")
             bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Shift+Space and Shift+Return by default.")
             bind("To free", hintBind(\.toFree), hint: "Alone tap moves onto the selected on-screen control and switches into free mode.")
-            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. Escape by default.")
+            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. Escape by default. ⌘⌥⌃ chords such as ⌘Tab also leave and reach the system; ⌘T and ⌘1–9 stay in hint.")
             bind("Back", hintBind(\.back), hint: "Deletes the last character of the query.")
         }
     }

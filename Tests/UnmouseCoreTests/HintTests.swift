@@ -152,6 +152,10 @@ struct HintTests {
         #expect(state.typed.isEmpty)
         #expect(state.selectedTarget == nil)
         #expect(state.armExactMatch() == false)
+        state.moveSelection(1)
+        #expect(state.selectedTarget?.id == "1")
+        let armedEmpty = state.armExactMatch()
+        #expect(armedEmpty)
         _ = state.typeCharacter("s")
         #expect(state.selectedTarget?.id == "1")
         let armed = state.armExactMatch()
@@ -213,6 +217,36 @@ struct HintTests {
         #expect(state.selectCmdNumber(2)?.id == "1")
         state.setCommandHeld(false)
         #expect(state.cmdNumber(forTargetID: "0") == nil)
+    }
+
+    @Test func searchTextGetsBubbleOnlyWithCmdNumber() {
+        // Search-only text stays off-screen until ⌘N; no bare "·" placeholders.
+        let text = HintTarget(
+            id: "kevin",
+            title: "kevin notes",
+            frame: CGRect(x: 40, y: 80, width: 120, height: 18),
+            role: "AXStaticText",
+            showsLabel: false
+        )
+        let button = HintTarget(
+            id: "btn",
+            title: "Save",
+            frame: CGRect(x: 200, y: 80, width: 48, height: 24),
+            code: "s",
+            role: "AXButton",
+            showsLabel: true
+        )
+        var state = HintState(targets: [text, button])
+        #expect(!state.bubbleTargets.contains(where: { $0.id == "kevin" }))
+        _ = state.typeCharacter("k")
+        #expect(!state.showsCmdNumbers)
+        #expect(!state.bubbleTargets.contains(where: { $0.id == "kevin" }))
+        _ = state.typeCharacter("e")
+        _ = state.typeCharacter("v")
+        #expect(state.showsCmdNumbers)
+        #expect(state.cmdNumber(forTargetID: "kevin") == 1)
+        #expect(state.bubbleTargets.contains(where: { $0.id == "kevin" }))
+        #expect(!state.bubbleTargets.contains(where: { $0.code == "·" }))
     }
 
     @Test func typeToSelectAndBackspace() {

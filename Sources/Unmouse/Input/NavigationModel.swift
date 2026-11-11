@@ -297,8 +297,10 @@ final class NavigationModel {
         // ⌘ + a scroll key stays here. The wheel event keeps ⌘ so the app zooms.
         // Z/X stay here too, including under ⌘, so they scale that scroll.
         let keepSpeed = mode == .free && isFreeSpeedKey(kind)
-        if !hintShortcut, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed,
-            passFreeChord(token: token, flags: flags, down: down, source: source) {
+        // Hint keeps ⌘T / ⌘0–9; other ⌘⌥⌃ chords pass through and leave hint (⌘Tab, etc.).
+        let keepHintChord = mode == .hint && Self.isHintOwnedChord(kind: kind, flags: flags)
+        if !hintShortcut, !keepHintChord, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed,
+            passSystemChord(token: token, flags: flags, down: down, source: source) {
             InputTrace.log("nav chord passthrough \(token) \(down ? "↓" : "↑")")
             return false
         }
@@ -648,20 +650,36 @@ final class NavigationModel {
     /// Command/Option/Control plus a non-held key: let it through, and pass that source's key-up.
     /// Karabiner and the event tap are separate sources. Consuming the up on the first one
     /// leaves the tap to swallow Tab, which sticks the key in macOS.
-    private func passFreeChord(token: String, flags: CGEventFlags, down: Bool, source: InputSource) -> Bool {
+    /// Free exits only when `exit_on_action` is on. Hint always exits (⌘Tab and friends).
+    private func passSystemChord(token: String, flags: CGEventFlags, down: Bool, source: InputSource) -> Bool {
         let fromTap = source == .tap
         if !down {
             return motion.chordPass.end(token: token, fromTap: fromTap)
         }
-        guard mode == .free, !motion.heldKeys.isHeld(token), motion.chordModifierDown(flags) else { return false }
+        guard mode == .free || mode == .hint,
+              !motion.heldKeys.isHeld(token),
+              motion.chordModifierDown(flags) else { return false }
         motion.chordPass.begin(token: token, fromTap: fromTap)
-        endFreeModeIfNeeded()
+        if mode == .hint {
+            exitToIdle(keepDrag: dragging)
+            onTutorial?(.cancelled)
+        } else {
+            endFreeModeIfNeeded()
+        }
         return true
     }
 
     private func endFreeModeIfNeeded() {
         guard mode == .free, app.config.free.exitOnAction else { return }
         exitToIdle(); onTutorial?(.cancelled)
+    }
+
+    /// Hint-owned ⌘ chords stay in mode: palette cycle and ⌘1–9 / ⌘0 picks.
+    private static func isHintOwnedChord(kind: KeyKind, flags: CGEventFlags) -> Bool {
+        guard flags.contains(.maskCommand) else { return false }
+        if kind == .letter("t") { return true }
+        if case .digit = kind { return true }
+        return false
     }
 
     // MARK: - Hint
@@ -676,6 +694,7 @@ final class NavigationModel {
         let before = hintState.commandHeld
         hintState.setCommandHeld(held)
         if hintState.commandHeld != before {
+            rebuildHintBubbles()
             app.overlayController?.refreshHints()
         }
     }
@@ -686,13 +705,20 @@ final class NavigationModel {
             exitToIdle(keepDrag: dragging); onTutorial?(.cancelled); return true
         }
         if b.back.matches(key: kind, flags: flags, alone: false) {
-            hintState.backspace(); app.overlayController?.refreshHints(); return true
+            hintState.backspace()
+            rebuildHintBubbles()
+            app.overlayController?.refreshHints()
+            return true
         }
-        if kind == .up {
-            hintState.moveSelection(-1); app.overlayController?.refreshHints(); return true
-        }
-        if kind == .down {
-            hintState.moveSelection(1); app.overlayController?.refreshHints(); return true
+        // Tab/arrows only when no ⌘⌥⌃ — otherwise system chords already passed through above.
+        let chordMods = flags.intersection([.maskCommand, .maskAlternate, .maskControl])
+        if chordMods.isEmpty {
+            if kind == .up || (kind == .tab && flags.contains(.maskShift)) {
+                hintState.moveSelection(-1); app.overlayController?.refreshHints(); return true
+            }
+            if kind == .down || kind == .tab {
+                hintState.moveSelection(1); app.overlayController?.refreshHints(); return true
+            }
         }
         // ⌘T cycles palette: semi-bottom → center → semi-top.
         if flags.contains(.maskCommand), kind == .letter("t") {
@@ -711,27 +737,23 @@ final class NavigationModel {
         // Bare typable keys always search — never treat them as click even if config says so.
         let bareTypable = Self.isHintBareTypable(kind: kind, flags: flags)
         if !bareTypable, b.leftClick.matches(key: kind, flags: flags, alone: false) {
-            // Empty palette query: Space/Return cancel — do not click the top row.
-            if hintState.typed.isEmpty {
-                exitToIdle(keepDrag: dragging)
-                onTutorial?(.cancelled)
-                return true
-            }
+            // Empty query + no Tab/↑↓ selection → cancel. Otherwise activate the row.
             if hintState.armExactMatch() {
                 onTutorial?(.hintArmed)
                 activateHint(hintState.selectedTarget, button: .left)
+            } else if hintState.typed.isEmpty {
+                exitToIdle(keepDrag: dragging)
+                onTutorial?(.cancelled)
             }
             return true
         }
         if !bareTypable, b.rightClick.matches(key: kind, flags: flags, alone: false) {
-            if hintState.typed.isEmpty {
-                exitToIdle(keepDrag: dragging)
-                onTutorial?(.cancelled)
-                return true
-            }
             if hintState.armExactMatch() {
                 onTutorial?(.hintArmed)
                 activateHint(hintState.selectedTarget, button: .right)
+            } else if hintState.typed.isEmpty {
+                exitToIdle(keepDrag: dragging)
+                onTutorial?(.cancelled)
             }
             return true
         }
@@ -742,6 +764,7 @@ final class NavigationModel {
         if let ch = kind.character {
             guard !hintState.targets.isEmpty else { return true }
             let result = hintState.typeCharacter(ch)
+            rebuildHintBubbles()
             app.overlayController?.refreshHints()
             if case .armed = result { onTutorial?(.hintArmed) }
             return true
@@ -753,6 +776,13 @@ final class NavigationModel {
     private static func isHintBareTypable(kind: KeyKind, flags: CGEventFlags) -> Bool {
         let mods = flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift])
         return mods.isEmpty && kind.character != nil
+    }
+
+    /// Relayout yellow labels: mnemonic controls + framed search hits (text) when relevant.
+    private func rebuildHintBubbles() {
+        let screen = hintScreenFrame
+        guard !screen.isEmpty else { return }
+        hintBubbles = HintLayout.layout(targets: hintState.bubbleTargets, screenBounds: screen)
     }
 
     private func activateHint(_ target: HintTarget?, button: MouseButton?) {
@@ -810,7 +840,7 @@ final class NavigationModel {
         let screen = hintScreenFrame.isEmpty ? screenForFocusedWindow().frame : hintScreenFrame
         hintScreenFrame = screen
         let t2 = DispatchTime.now().uptimeNanoseconds
-        hintBubbles = HintLayout.layout(targets: coded, screenBounds: screen)
+        rebuildHintBubbles()
         let layoutMs = (DispatchTime.now().uptimeNanoseconds - t2) / 1_000_000
         InputTrace.log(
             "hint load ready labeled=\(labeled) bubbles=\(hintBubbles.count) codeMs=\(codeMs) layoutMs=\(layoutMs) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"

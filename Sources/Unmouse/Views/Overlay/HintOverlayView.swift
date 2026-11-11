@@ -124,7 +124,7 @@ private struct HintPaletteView: View {
             } else {
                 let rows = Array(state.matches.prefix(8))
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, match in
-                    let selected = !state.typed.isEmpty && index == state.selectedIndex
+                    let selected = state.selectedIndex >= 0 && index == state.selectedIndex
                     HStack(spacing: 10) {
                         if !match.target.code.isEmpty {
                             Text(match.target.code)

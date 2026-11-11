@@ -109,7 +109,7 @@ flowchart TD
     HELD --> UD
 
     MOD -->|no| HINTCHK{"Hint chord?<br/>Cmd+Shift+Space"}
-    HINTCHK -->|no| CHORD{"Free-mode chord?<br/>passFreeChord"}
+    HINTCHK -->|no| CHORD{"Free/hint system chord?<br/>passSystemChord"}
     CHORD -->|yes| PASS["Pass through<br/>ChordPassthrough per source"]
     CHORD -->|no| DEDUP
     HINTCHK -->|yes| DEDUP{"KeyDeduper<br/>first copy in 30 ms?"}
@@ -136,6 +136,7 @@ Rules that the diagram does not show:
 - `ChordPassthrough` keeps one slot per source. The source that passed the key-down must pass its own key-up. Sharing one slot makes the tap swallow Tab, and macOS then ignores the next ⌘-Tab.
 - `AloneTapTracker` (inside the tap) decides a solo modifier tap. Another key, another modifier, or a hold longer than `tap_max_ms` cancels it. The key-up arrives with `alone: true`.
 - Mouse-down in free calls `endFreeModeIfNeeded`, which leaves free only when `exit_on_action` is on.
+- In hint, ⌘⌥⌃ plus another key leaves and passes through (`passSystemChord`), except hint-owned ⌘T and ⌘0–9. Free still uses the same path; exit there stays gated by `exit_on_action`.
 
 ### Mode transitions
 
@@ -150,7 +151,7 @@ stateDiagram-v2
     grid --> hint: Cmd+Shift+Space
     free --> idle: cancel, Option tap, or exit_on_action
     free --> hint: Cmd+Shift+Space
-    hint --> idle: finalize, cancel, or the hint chord again
+    hint --> idle: finalize, cancel, hint chord again, or ⌘⌥⌃ system chord
     hint --> free: Option on an armed target
     grid --> idle: timeout
     free --> idle: timeout

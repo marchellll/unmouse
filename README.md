@@ -34,7 +34,7 @@ Tap a mode key. Hold it longer than the alone-tap limit (200 ms by default) and 
 |---|---|---|
 | Grid | Tap left ⌘ | Type a cell label. Space or Return left-clicks. `a` right-clicks, `s` middle-clicks, `d` moves without clicking. Delete steps back, Tab moves to the next screen, Escape cancels. |
 | Free | Tap left ⌥ | `j` `k` `l` `;` steer (arrows do the same). Hold `z` to go faster, `x` to go slower. `m` `,` `.` `/` scroll. `q` toggles a drag. Space or Return left-clicks and stays in free mode. Escape cancels. |
-| Hint | ⌘⇧Space | Type a label or search text, menus, windows, and apps. Space or Return activates the selection. Shift+Space or Shift+Return right-clicks. After 3 characters, ⌘1–⌘9 pick a top hit. Alone ⌘ opens the grid; alone ⌥ moves there and enters free mode. Delete edits the query, Escape cancels. |
+| Hint | ⌘⇧Space | Type a label or search text, menus, windows, and apps. Space or Return activates the selection. Shift+Space or Shift+Return right-clicks. After 3 characters, ⌘1–⌘9 pick a top hit. Alone ⌘ opens the grid; alone ⌥ moves there and enters free mode. Delete edits the query, Escape cancels. ⌘Tab and other ⌘⌥⌃ chords leave hint and reach the system; ⌘T and ⌘1–9 stay. |
 
 On a finished grid cell, left ⌥ moves there before entering free mode. Settings shows the full binding list and can record new shortcuts.
 
