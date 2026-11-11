@@ -374,13 +374,13 @@ public struct HintMatch: Equatable, Sendable, Identifiable {
     public var id: String { target.id }
 }
 
-/// Vertical placement of the hint palette. Horizontally always centered.
+/// Freestanding vertical slot (screen-centered). ⌘T cycles these.
 public enum HintPaletteAnchor: Int, CaseIterable, Equatable, Sendable {
     case semiBottom = 0
     case center = 1
     case semiTop = 2
 
-    /// Fraction of screen height for the palette center (top = 0).
+    /// Fraction of overlay height for the palette center (top = 0).
     public var yFraction: CGFloat {
         switch self {
         case .semiTop: 0.28
@@ -394,13 +394,97 @@ public enum HintPaletteAnchor: Int, CaseIterable, Equatable, Sendable {
     }
 }
 
+/// Where the hint palette sits. Attached points are AppKit screen coords (y up).
+public enum HintPaletteLayout: Equatable, Sendable {
+    /// Snapped against the focused window (below or beside).
+    case attached(CGPoint)
+    /// Screen-centered freestanding slot.
+    case freestanding(HintPaletteAnchor)
+}
+
+/// Prefer nempel below → beside → freestanding center-below.
+public enum HintPalettePlacement {
+    public static let paletteSize = CGSize(width: 420, height: 320)
+    public static let gap: CGFloat = 8
+
+    /// Resolve layout for the focused window on its screen (both AppKit coords).
+    public static func resolve(
+        window: CGRect,
+        screen: CGRect,
+        paletteSize: CGSize = paletteSize,
+        gap: CGFloat = gap
+    ) -> HintPaletteLayout {
+        guard screen.width > 8, screen.height > 8 else {
+            return .freestanding(.semiBottom)
+        }
+        let visible = window.intersection(screen)
+        guard !visible.isNull, !visible.isInfinite, visible.width > 8, visible.height > 8 else {
+            return .freestanding(.semiBottom)
+        }
+
+        let halfW = paletteSize.width / 2
+        let halfH = paletteSize.height / 2
+        let needW = paletteSize.width + gap
+        let needH = paletteSize.height + gap
+
+        // 1) Below the window, centered on window midX, nempel to the bottom edge.
+        let spaceBelow = visible.minY - screen.minY
+        if spaceBelow >= needH {
+            let x = clamp(visible.midX, screen.minX + halfW, screen.maxX - halfW)
+            let y = visible.minY - gap - halfH
+            return .attached(CGPoint(x: x, y: y))
+        }
+
+        // 2) Beside the window, centered on window midY, nempel to the side with room.
+        let spaceRight = screen.maxX - visible.maxX
+        let spaceLeft = visible.minX - screen.minX
+        if spaceRight >= needW || spaceLeft >= needW {
+            let y = clamp(visible.midY, screen.minY + halfH, screen.maxY - halfH)
+            if spaceRight >= needW, spaceRight >= spaceLeft {
+                let x = visible.maxX + gap + halfW
+                return .attached(CGPoint(x: x, y: y))
+            }
+            if spaceLeft >= needW {
+                let x = visible.minX - gap - halfW
+                return .attached(CGPoint(x: x, y: y))
+            }
+            // Prefer the side that fits even if the other looked larger but was short.
+            if spaceRight >= needW {
+                let x = visible.maxX + gap + halfW
+                return .attached(CGPoint(x: x, y: y))
+            }
+        }
+
+        // 3) Give up — freestanding center-below; ⌘T cycles the rest.
+        return .freestanding(.semiBottom)
+    }
+
+    public static func clamp(_ v: CGFloat, _ lo: CGFloat, _ hi: CGFloat) -> CGFloat {
+        min(max(v, lo), max(lo, hi))
+    }
+
+    /// Keep the palette center on-screen in overlay-local points (y down).
+    public static func clampCenter(
+        x: CGFloat,
+        y: CGFloat,
+        halfWidth: CGFloat,
+        halfHeight: CGFloat,
+        in size: CGSize
+    ) -> CGPoint {
+        CGPoint(
+            x: clamp(x, min(halfWidth, size.width), max(min(halfWidth, size.width), size.width - halfWidth)),
+            y: clamp(y, min(halfHeight, size.height), max(min(halfHeight, size.height), size.height - halfHeight))
+        )
+    }
+}
+
 public struct HintState: Equatable, Sendable {
     public var targets: [HintTarget]
     public var typed: String
     public var selectedIndex: Int
     public var matches: [HintMatch]
-    /// Resets to semi-bottom every time hint mode opens.
-    public var paletteAnchor: HintPaletteAnchor
+    /// Attached to the window, or a freestanding ⌘T slot.
+    public var paletteLayout: HintPaletteLayout
     /// Holding ⌘ shows ⌘1–9 on bubbles/palette even before the query is long enough.
     public var commandHeld: Bool
 
@@ -410,9 +494,20 @@ public struct HintState: Equatable, Sendable {
         // No auto-select on empty query — Tab/↑↓ pick a row; Space with none cancels.
         self.selectedIndex = -1
         self.matches = Self.rank(targets: targets, query: "")
-        self.paletteAnchor = .semiBottom
+        self.paletteLayout = .freestanding(.semiBottom)
         self.commandHeld = false
         applyCmdNumbers()
+    }
+
+    /// ⌘T: leave attach if needed, then cycle center-below → center → center-upper.
+    public mutating func cyclePalette() {
+        switch paletteLayout {
+        case .attached:
+            paletteLayout = .freestanding(.center)
+        case .freestanding(var anchor):
+            anchor.toggle()
+            paletteLayout = .freestanding(anchor)
+        }
     }
 
     /// Palette + window bubbles show ⌘N when the query is long enough, or while ⌘ is held.

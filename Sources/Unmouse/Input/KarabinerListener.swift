@@ -7,7 +7,10 @@ final class KarabinerListener {
     private var manager: IOHIDManager?
     /// kind, down, eventNanos (mach absolute)
     var onKey: ((KeyKind, Bool, UInt64) -> Void)?
+    /// Fires when the virtual keyboard appears or disappears.
+    var onActiveChange: ((Bool) -> Void)?
     private(set) var isActive = false
+    private var attached: Set<ObjectIdentifier> = []
     var isRunning: Bool { manager != nil }
 
     func startIfAvailable() -> Bool {
@@ -27,10 +30,10 @@ final class KarabinerListener {
             let this = Unmanaged<KarabinerListener>.fromOpaque(context).takeUnretainedValue()
             this.attach(device: device)
         }, ctx)
-        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, _ in
+        IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             guard let context else { return }
             let this = Unmanaged<KarabinerListener>.fromOpaque(context).takeUnretainedValue()
-            this.isActive = false
+            this.detach(device: device)
         }, ctx)
 
         // commonModes so callbacks keep arriving during menu tracking (same as the event tap).
@@ -58,18 +61,36 @@ final class KarabinerListener {
             IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         }
         manager = nil
-        isActive = false
+        attached.removeAll()
+        setActive(false)
     }
 
     private func attach(device: IOHIDDevice) {
         guard isKarabinerVirtualKeyboard(device) else { return }
-        isActive = true
+        let id = ObjectIdentifier(device)
+        guard attached.insert(id).inserted else { return }
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
+        InputTrace.log("karabiner hid attached \"\(name)\"")
         let ctx = Unmanaged.passUnretained(self).toOpaque()
         IOHIDDeviceRegisterInputValueCallback(device, { context, _, _, value in
             guard let context else { return }
             let this = Unmanaged<KarabinerListener>.fromOpaque(context).takeUnretainedValue()
             this.handle(value: value)
         }, ctx)
+        setActive(true)
+    }
+
+    private func detach(device: IOHIDDevice) {
+        guard attached.remove(ObjectIdentifier(device)) != nil else { return }
+        let name = IOHIDDeviceGetProperty(device, kIOHIDProductKey as CFString) as? String ?? "?"
+        InputTrace.log("karabiner hid detached \"\(name)\"")
+        setActive(!attached.isEmpty)
+    }
+
+    private func setActive(_ active: Bool) {
+        guard active != isActive else { return }
+        isActive = active
+        onActiveChange?(active)
     }
 
     private func handle(value: IOHIDValue) {
@@ -160,10 +181,3 @@ extension KeyKind {
     }
 }
 
-enum KarabinerPresence {
-    static func cliPresent() -> Bool {
-        FileManager.default.isExecutableFile(
-            atPath: "/Library/Application Support/org.pqrs/Karabiner-Elements/bin/karabiner_cli"
-        )
-    }
-}

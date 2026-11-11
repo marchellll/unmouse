@@ -320,14 +320,73 @@ struct HintTests {
         #expect(words == Set(["ok", "save"]))
     }
 
-    @Test func paletteAnchorCyclesAndDefaultsSemiBottom() {
+    @Test func paletteCycleLeavesAttachThenCyclesFreestanding() {
         var state = HintState()
-        #expect(state.paletteAnchor == .semiBottom)
-        state.paletteAnchor.toggle()
-        #expect(state.paletteAnchor == .center)
-        state.paletteAnchor.toggle()
-        #expect(state.paletteAnchor == .semiTop)
-        state.paletteAnchor.toggle()
-        #expect(state.paletteAnchor == .semiBottom)
+        #expect(state.paletteLayout == .freestanding(.semiBottom))
+        state.paletteLayout = .attached(CGPoint(x: 10, y: 20))
+        state.cyclePalette()
+        #expect(state.paletteLayout == .freestanding(.center))
+        state.cyclePalette()
+        #expect(state.paletteLayout == .freestanding(.semiTop))
+        state.cyclePalette()
+        #expect(state.paletteLayout == .freestanding(.semiBottom))
+        state.cyclePalette()
+        #expect(state.paletteLayout == .freestanding(.center))
+    }
+
+    @Test func palettePrefersBelowThenBesideThenFreestanding() {
+        let screen = CGRect(x: 0, y: 0, width: 1200, height: 900)
+        let size = CGSize(width: 420, height: 320)
+
+        // Room below → attach under window, centered on midX.
+        let below = HintPalettePlacement.resolve(
+            window: CGRect(x: 400, y: 500, width: 400, height: 300),
+            screen: screen,
+            paletteSize: size
+        )
+        guard case .attached(let pBelow) = below else {
+            Issue.record("expected attached below")
+            return
+        }
+        #expect(abs(pBelow.x - 600) < 1)
+        #expect(pBelow.y < 500)
+
+        // No room below, room on the right → attach beside.
+        let beside = HintPalettePlacement.resolve(
+            window: CGRect(x: 40, y: 40, width: 500, height: 820),
+            screen: screen,
+            paletteSize: size
+        )
+        guard case .attached(let pBeside) = beside else {
+            Issue.record("expected attached beside")
+            return
+        }
+        #expect(pBeside.x > 540)
+        #expect(abs(pBeside.y - 450) < 1)
+
+        // Fullscreen-ish → freestanding default.
+        let full = HintPalettePlacement.resolve(
+            window: CGRect(x: 10, y: 10, width: 1180, height: 880),
+            screen: screen,
+            paletteSize: size
+        )
+        #expect(full == .freestanding(.semiBottom))
+    }
+
+    @Test func paletteClampStaysOnScreen() {
+        let p = HintPalettePlacement.clampCenter(
+            x: 50, y: 20,
+            halfWidth: 210, halfHeight: 160,
+            in: CGSize(width: 1000, height: 800)
+        )
+        #expect(p.x == 210)
+        #expect(p.y == 160)
+        let q = HintPalettePlacement.clampCenter(
+            x: 990, y: 790,
+            halfWidth: 210, halfHeight: 160,
+            in: CGSize(width: 1000, height: 800)
+        )
+        #expect(q.x == 790)
+        #expect(q.y == 640)
     }
 }

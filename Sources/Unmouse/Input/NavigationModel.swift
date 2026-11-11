@@ -24,7 +24,7 @@ final class NavigationModel {
 
     enum KarabinerStatus: String {
         case usingKarabiner = "Using Karabiner"
-        case waitingForKarabiner = "Waiting for Karabiner"
+        case waitingForKarabiner = "Waiting for Karabiner, using Event Tap"
         case eventTapOnly = "Event tap only"
     }
 
@@ -87,18 +87,21 @@ final class NavigationModel {
 
     func updateKarabiner() {
         guard app.config.input.karabiner else {
-            karabinerStatus = .eventTapOnly
+            setKarabinerStatus(.eventTapOnly)
             karabiner.stop()
             return
         }
         if !karabiner.isRunning {
             _ = karabiner.startIfAvailable()
         }
-        if karabiner.isActive || KarabinerPresence.cliPresent() {
-            karabinerStatus = .usingKarabiner
-        } else {
-            karabinerStatus = .waitingForKarabiner
-        }
+        // The virtual keyboard, not the installed karabiner_cli binary.
+        setKarabinerStatus(karabiner.isActive ? .usingKarabiner : .waitingForKarabiner)
+    }
+
+    private func setKarabinerStatus(_ status: KarabinerStatus) {
+        guard status != karabinerStatus else { return }
+        karabinerStatus = status
+        InputTrace.log("karabiner status \(status.rawValue)")
     }
 
     func releaseStaleHolds() {
@@ -242,6 +245,11 @@ final class NavigationModel {
         hintBubbles = []
         let t0 = DispatchTime.now().uptimeNanoseconds
         hintScreenFrame = screenForFocusedWindow().frame
+        // Prefer nempel below / beside the focused window; else freestanding center-below.
+        if let win = Self.focusedWindowAppKitFrame() {
+            hintState.paletteLayout = HintPalettePlacement.resolve(window: win, screen: hintScreenFrame)
+            InputTrace.log("hint palette layout \(hintState.paletteLayout) win=\(Int(win.width))x\(Int(win.height))")
+        }
         InputTrace.log(
             "hint screen frame \(Int(hintScreenFrame.width))x\(Int(hintScreenFrame.height))@\(Int(hintScreenFrame.minX)),\(Int(hintScreenFrame.minY)) axMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
@@ -284,6 +292,10 @@ final class NavigationModel {
             guard let self else { return }
             InputTrace.log("karabiner \(KeyCodes.token(for: kind)) \(down ? "down" : "up") t=\(nanos)")
             _ = self.handleKey(kind: kind, flags: self.lastFlags, down: down, alone: false, source: .karabiner, eventNanos: nanos)
+        }
+        karabiner.onActiveChange = { [weak self] active in
+            guard let self, self.app.config.input.karabiner else { return }
+            self.setKarabinerStatus(active ? .usingKarabiner : .waitingForKarabiner)
         }
         eventTap.onMouseDown = { [weak self] in
             InputTrace.log("nav mouseDown → endFreeModeIfNeeded mode=\(self?.mode.rawValue ?? "?")")
@@ -756,9 +768,9 @@ final class NavigationModel {
                 hintState.moveSelection(1); app.overlayController?.refreshHints(); return true
             }
         }
-        // ⌘T cycles palette: semi-bottom → center → semi-top.
+        // ⌘T cycles freestanding slots (leaves attach on first press).
         if flags.contains(.maskCommand), kind == .letter("t") {
-            hintState.paletteAnchor.toggle()
+            hintState.cyclePalette()
             app.overlayController?.refreshHints()
             return true
         }
@@ -868,10 +880,10 @@ final class NavigationModel {
         let coded = HintCoder.assignCodes(targets: targets)
         let labeled = coded.filter(\.showsLabel).count
         let codeMs = (DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000
-        let anchor = hintState.paletteAnchor
+        let layout = hintState.paletteLayout
         let cmdHeld = hintState.commandHeld
         hintState = HintState(targets: coded)
-        hintState.paletteAnchor = anchor
+        hintState.paletteLayout = layout
         hintState.setCommandHeld(cmdHeld)
         let screen = hintScreenFrame.isEmpty ? screenForFocusedWindow().frame : hintScreenFrame
         hintScreenFrame = screen

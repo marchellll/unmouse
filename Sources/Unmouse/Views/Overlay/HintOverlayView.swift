@@ -57,16 +57,32 @@ struct HintOverlayView: View {
                 }
                 .allowsHitTesting(false)
 
+                // ponytail: fixed half-size for clamp — real height varies a bit with row count.
                 HintPaletteView(model: model)
-                    .frame(width: 420)
-                    .position(
-                        x: geo.size.width / 2,
-                        y: geo.size.height * model.nav.hintState.paletteAnchor.yFraction
-                    )
+                    .frame(width: HintPalettePlacement.paletteSize.width)
+                    .position(Self.paletteCenter(state: model.nav.hintState, screen: screen, geo: geo.size))
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+    }
+
+    /// Overlay-local center for the palette; attached points convert from AppKit.
+    private static func paletteCenter(state: HintState, screen: CGRect, geo: CGSize) -> CGPoint {
+        let halfW = HintPalettePlacement.paletteSize.width / 2
+        let halfH = HintPalettePlacement.paletteSize.height / 2
+        let raw: CGPoint
+        switch state.paletteLayout {
+        case .attached(let appKit):
+            raw = toLocal(appKit, screen: screen)
+        case .freestanding(let anchor):
+            raw = CGPoint(x: geo.width / 2, y: geo.height * anchor.yFraction)
+        }
+        return HintPalettePlacement.clampCenter(
+            x: raw.x, y: raw.y,
+            halfWidth: halfW, halfHeight: halfH,
+            in: geo
+        )
     }
 
     /// ponytail: typed letters shift toward amber off the text color. No extra config key.
