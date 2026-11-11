@@ -80,4 +80,31 @@ struct PointerAimTests {
         #expect(aim.resolve(live: onLeft, displays: [left, right]) == onRight)
         #expect(aim.posted == onRight)
     }
+
+    /// The post leapt past the edge, and mouseLocation is still the interior anchor.
+    @Test func jumpPastTheEdgeAimsFromTheEdge() {
+        let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let inside = CGPoint(x: 960, y: 500)
+        var aim = PointerAim()
+        aim.remember(live: inside, point: CGPoint(x: 960, y: 2000))
+        #expect(aim.resolve(live: inside, displays: [display]) == CGPoint(x: 960, y: 1080))
+        #expect(aim.posted == nil)
+    }
+
+    @Test func realMoveWhilePostedOffScreenUsesTheLivePoint() {
+        let display = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+        let inside = CGPoint(x: 960, y: 500)
+        let elsewhere = CGPoint(x: 100, y: 100)
+        var aim = PointerAim()
+        aim.remember(live: inside, point: CGPoint(x: 960, y: 2000))
+        #expect(aim.resolve(live: elsewhere, displays: [display]) == elsewhere)
+        #expect(aim.posted == nil)
+    }
+
+    /// Manhattan ties these two clamp points and keeps the farther one.
+    @Test func clampPicksTheEuclideanNearestDisplay() {
+        let a = CGRect(x: 0, y: 0, width: 1, height: 1)
+        let b = CGRect(x: 2, y: 2, width: 1, height: 1)
+        #expect(PointerAim.clamp(CGPoint(x: 6, y: 0), to: [a, b]) == CGPoint(x: 3, y: 2))
+    }
 }

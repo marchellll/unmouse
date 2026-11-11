@@ -40,8 +40,7 @@ enum PointerController {
                 object: nil,
                 queue: .main
             ) { _ in
-                // Observer is queued on main; assumeIsolated keeps Swift 6 quiet.
-                MainActor.assumeIsolated { refreshDisplays() }
+                Task { @MainActor in refreshDisplays() }
             }
         } else if cachedDisplays.isEmpty {
             refreshDisplays()
@@ -50,10 +49,11 @@ enum PointerController {
 
     private static func refreshDisplays() {
         // Quartz global bounds match CGEvent posts. Avoid AppKit y-flip mistakes.
+        // A failed or empty list keeps the previous cache. `&ids` on an empty array traps.
         var count: UInt32 = 0
-        CGGetActiveDisplayList(0, nil, &count)
+        guard CGGetActiveDisplayList(0, nil, &count) == .success, count > 0 else { return }
         var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
-        CGGetActiveDisplayList(count, &ids, &count)
+        guard CGGetActiveDisplayList(count, &ids, &count) == .success, count > 0 else { return }
         cachedDisplays = (0..<Int(count)).map { CGDisplayBounds(ids[$0]) }
         // AppKit mouseLocation still needs the primary's point height for the y flip.
         cachedPrimaryHeight = NSScreen.screens.first?.frame.height
@@ -83,8 +83,8 @@ enum PointerController {
 
     /// AppKit screen point (origin bottom-left) → CGEvent global.
     static func move(toAppKit point: CGPoint) {
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        move(to: CoordinateSpace.appKitToCGEvent(point, primaryHeight: primaryH))
+        ensureDisplayCache()
+        move(to: CoordinateSpace.appKitToCGEvent(point, primaryHeight: cachedPrimaryHeight))
     }
 
     static func moveBy(dx: CGFloat, dy: CGFloat, dragging: Bool = false) {

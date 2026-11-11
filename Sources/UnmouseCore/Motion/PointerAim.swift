@@ -29,15 +29,21 @@ public struct PointerAim: Equatable, Sendable {
     /// Posted point while the system location is caught up or still on the anchor.
     /// Any other location is a real pointer move: drop the aim and use it.
     /// When `displays` is non-empty and the posted point is outside every display, drop the
-    /// aim and clamp. Do not wait for `live` to stay on the anchor: `NSEvent.mouseLocation`
-    /// can follow the virtual off-screen post while the drawn cursor stays on the edge.
-    /// Empty `displays` keeps the lag-only path (tests).
+    /// aim and clamp. A `live` still on the on-screen anchor clamps the posted point, so the
+    /// next delta starts at the edge. Any other `live` is clamped itself: it followed the
+    /// virtual post, or it is a real move. Empty `displays` keeps the lag-only path (tests).
     /// ponytail: a half-applied event queue could report a point between anchor and posted, and this trusts that point. Absolute positions land as the latest event, so the in-between read does not show up.
     public mutating func resolve(live: CGPoint, displays: [CGRect] = []) -> CGPoint {
         if !displays.isEmpty, let posted, !Self.onScreen(posted, displays: displays) {
+            let edge = Self.clamp(posted, to: displays)
+            let laggedAtAnchor = if let anchor {
+                Self.onScreen(live, displays: displays) && Self.near(live, anchor)
+            } else {
+                false
+            }
             self.posted = nil
             self.anchor = nil
-            return Self.clamp(live, to: displays)
+            return laggedAtAnchor ? edge : Self.clamp(live, to: displays)
         }
         guard let posted, let anchor else {
             return displays.isEmpty ? live : Self.clamp(live, to: displays)
@@ -66,7 +72,9 @@ public struct PointerAim: Equatable, Sendable {
                 x: min(max(point.x, r.minX), r.maxX),
                 y: min(max(point.y, r.minY), r.maxY)
             )
-            let d = abs(c.x - point.x) + abs(c.y - point.y)
+            let dx = c.x - point.x
+            let dy = c.y - point.y
+            let d = dx * dx + dy * dy
             if d < bestDist {
                 bestDist = d
                 best = c
