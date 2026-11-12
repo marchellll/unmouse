@@ -174,7 +174,7 @@ private struct HintPaletteView: View {
             }
 
             Divider().overlay(Color.white.opacity(0.12))
-            Text("⏎/Space click · ⇧⏎ right · ⌘T move · ⌥ free · ⌘ grid · Esc cancel")
+            Text(model.hintLegend)
                 .font(.system(size: 10))
                 .foregroundStyle(Color.white.opacity(0.4))
                 .padding(.horizontal, 12)

@@ -141,7 +141,7 @@ struct TutorialTests {
         #expect(!ok && progress.stepIndex == 1)
         ok = progress.handle(.gridToFree)
         #expect(ok && progress.stepIndex == 2)
-        #expect(progress.current?.prompt == "Nudge onto the target with `H` `J` `K` `L`.")
+        #expect(progress.current?.prompt == "Nudge onto the target with `J` `K` `L` `;`.")
     }
 
     @Test func fourSessionsHaveSteps() {
@@ -243,6 +243,27 @@ struct TutorialTests {
         let landed = PuckDrop.nudge(stepped, dx: 120, dy: -4, onDragStep: true)
         #expect(landed == CGSize(width: PuckDrop.dropX - PuckDrop.homeX, height: 0))
         #expect(PuckDrop.contains(offset: landed))
+    }
+
+    @Test func hintLegendFollowsTheBindings() {
+        #expect(HintLegend.line(.init()) == "Space/↩ click · ⌃Space/⌃↩ right · ⌥ free · ⌘ grid · Esc cancel")
+        var changed = BindingsConfig()
+        changed.hint.rightClick = ["d"]
+        changed.global.gridMode = ["g"]
+        #expect(HintLegend.line(changed) == "Space/↩ click · D right · ⌥ free · G grid · Esc cancel")
+        changed.hint.leftClick = []
+        #expect(!HintLegend.line(changed).contains("click"))
+    }
+
+    @Test func guideKeysFollowTheGridBindings() {
+        var grid = GridBindings()
+        grid.leftClick = ["t"]
+        grid.rightClick = ["s"]
+        grid.toFree = ["a"]
+        let keys = GridGuideKeys(grid: grid)
+        #expect(GridGuideCopy.detail(opensFiner: false, click: .left, keys: keys) == "`T` hits this cell.")
+        #expect(GridGuideCopy.detail(opensFiner: true, click: .right, keys: keys) == "Last key opens a finer grid. `S` right-clicks the rectangle so far.")
+        #expect(GridGuideCopy.detail(opensFiner: false, click: .toFree, keys: keys) == "Then `A` — drop into free mode.")
     }
 
     @Test func movedOnSteerStepLeavesProgressEqual() {

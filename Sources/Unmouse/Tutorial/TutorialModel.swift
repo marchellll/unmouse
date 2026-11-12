@@ -9,15 +9,17 @@ final class TutorialModel {
     var coachEnabled = false
     /// Screen rect of the practice target the grid guide aims at. AppKit coordinates.
     var guideAnchor: CGRect?
-    /// Puck travel while Q is holding the button. The arena copies this into its offset.
+    /// Puck travel while the hold-click key is down. The arena copies this into its offset.
     var puckNudge: CGSize = .zero
+    /// Copied onto each session so prompts name the keys in the live config.
+    var bindings: BindingsConfig = .init()
 
     /// Weak back-reference so the arena can still drive notes; AppModel owns overlays.
     weak var app: AppModel?
 
     func start(_ session: TutorialSessionID) {
         app?.nav.releaseStaleHolds()
-        progress = TutorialProgress(session: session)
+        progress = TutorialProgress(session: session, bindings: bindings)
         coachEnabled = false
         guideAnchor = nil
         puckNudge = .zero
@@ -100,6 +102,13 @@ final class TutorialModel {
         }
     }
 
+    func use(_ bindings: BindingsConfig) {
+        self.bindings = bindings
+        guard var t = progress else { return }
+        t.bindings = bindings
+        progress = t
+    }
+
     func finishSession() {
         guard let t = progress else { return }
         InputTrace.log("tutorial done \(t.session.rawValue) next=\(t.session.next?.rawValue ?? "none")")
@@ -107,7 +116,7 @@ final class TutorialModel {
         done.insert(t.session)
         saveCompletedSessions(done)
         if let next = t.session.next {
-            progress = TutorialProgress(session: next)
+            progress = TutorialProgress(session: next, bindings: bindings)
             if let app {
                 TutorialArenaController.shared.show(model: app)
             }

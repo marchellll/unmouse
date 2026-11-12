@@ -76,7 +76,7 @@ extension GridState {
     }
 
     /// Cue for the grid currently on screen. Nil when `point` is off this screen.
-    public func guide(at point: CGPoint, click: GridGuideClick) -> GridGuideCue? {
+    public func guide(at point: CGPoint, click: GridGuideClick, keys: GridGuideKeys = .init()) -> GridGuideCue? {
         let path = aimPath(containing: point)
         guard !path.isEmpty else { return nil }
         let level = CGRect(origin: currentLevel.origin, size: currentLevel.size)
@@ -89,7 +89,7 @@ extension GridState {
                     frames: [],
                     anchor: level,
                     focus: CGPoint(x: level.midX, y: level.midY),
-                    title: "Then `⌥`",
+                    title: "Then `\(keys.free)`",
                     detail: "Drop into free mode."
                 )
             }
@@ -98,7 +98,7 @@ extension GridState {
                 anchor: level,
                 focus: CGPoint(x: level.midX, y: level.midY),
                 title: "Not this cell",
-                detail: "`⌫` — the target is outside this grid."
+                detail: "`\(keys.back)` — the target is outside this grid."
             )
         }
         let here = path[index]
@@ -110,7 +110,7 @@ extension GridState {
             anchor: here.frame,
             focus: point,
             title: title,
-            detail: GridGuideCopy.detail(opensFiner: levels.count < depth, click: click)
+            detail: GridGuideCopy.detail(opensFiner: levels.count < depth, click: click, keys: keys)
         )
     }
 
@@ -139,15 +139,33 @@ extension GridState {
     }
 }
 
+/// Glyphs the grid guide prints. Taken from the grid bindings so a layout change stays in the card.
+public struct GridGuideKeys: Equatable, Sendable {
+    public var left: String
+    public var right: String
+    public var free: String
+    public var back: String
+
+    public init(grid: GridBindings = .init()) {
+        left = ShortcutLabel.first(grid.leftClick)
+        right = ShortcutLabel.first(grid.rightClick)
+        free = ShortcutLabel.first(grid.toFree)
+        back = ShortcutLabel.first(grid.back)
+    }
+}
+
 public enum GridGuideCopy {
-    public static func detail(opensFiner: Bool, click: GridGuideClick) -> String {
-        switch (opensFiner, click) {
-        case (true, .left): "Last key opens a finer grid. `␣` clicks the rectangle so far."
-        case (true, .right): "Last key opens a finer grid. `D` right-clicks the rectangle so far."
-        case (false, .left): "`␣` hits this cell."
-        case (false, .right): "`D` right-clicks this cell."
-        case (true, .toFree): "Last key opens a finer grid. Then `⌥` — drop into free mode."
-        case (false, .toFree): "Then `⌥` — drop into free mode."
+    public static func detail(opensFiner: Bool, click: GridGuideClick, keys: GridGuideKeys = .init()) -> String {
+        let left = "`\(keys.left)`"
+        let right = "`\(keys.right)`"
+        let free = "`\(keys.free)`"
+        return switch (opensFiner, click) {
+        case (true, .left): "Last key opens a finer grid. \(left) clicks the rectangle so far."
+        case (true, .right): "Last key opens a finer grid. \(right) right-clicks the rectangle so far."
+        case (false, .left): "\(left) hits this cell."
+        case (false, .right): "\(right) right-clicks this cell."
+        case (true, .toFree): "Last key opens a finer grid. Then \(free) — drop into free mode."
+        case (false, .toFree): "Then \(free) — drop into free mode."
         }
     }
 }

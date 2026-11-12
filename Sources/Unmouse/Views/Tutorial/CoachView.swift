@@ -130,37 +130,6 @@ struct CoachView: View {
 
     /// First binding, shortened for the strip (`option_left` → `⌥`).
     private func label(_ raw: [String]) -> String {
-        guard let first = raw.first else { return "?" }
-        return pretty(first)
-    }
-
-    private func pretty(_ raw: String) -> String {
-        raw.lowercased()
-            .split(separator: "+")
-            .map { token -> String in
-                switch token {
-                case "command", "cmd": return "⌘"
-                case "command_left", "cmd_left": return "⌘"
-                case "command_right", "cmd_right": return "⌘"
-                case "option", "opt", "alt": return "⌥"
-                case "option_left", "opt_left", "alt_left": return "⌥"
-                case "option_right", "opt_right", "alt_right": return "⌥"
-                case "shift": return "⇧"
-                case "shift_left", "shift_right": return "⇧"
-                case "control", "ctrl": return "⌃"
-                case "control_left", "control_right": return "⌃"
-                case "space": return "Space"
-                case "return", "enter": return "↩"
-                case "escape", "esc": return "Esc"
-                case "delete", "backspace": return "⌫"
-                case "tab": return "Tab"
-                case "left": return "←"
-                case "right": return "→"
-                case "up": return "↑"
-                case "down": return "↓"
-                default: return String(token).uppercased()
-                }
-            }
-            .joined()
+        ShortcutLabel.first(raw)
     }
 }

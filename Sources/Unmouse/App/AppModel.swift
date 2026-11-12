@@ -8,6 +8,8 @@ import UnmouseCore
 @MainActor
 final class AppModel {
     var config: AppConfig = .default
+    /// Hint palette footer. Rebuilt when a config is applied.
+    var hintLegend: String = HintLegend.line(.init())
     var configError: String?
     var showWalkthrough = false
     var accessibilityTrusted = false
@@ -262,6 +264,8 @@ final class AppModel {
                 }
             }
             UnmouseLog.setLevel(config.log.level)
+            hintLegend = HintLegend.line(config.bindings)
+            tutorial?.use(config.bindings)
             nav?.applyBindings(config)
             nav?.updateKarabiner()
             nav?.setCenterOnFocus(config.input.centerOnFocus)

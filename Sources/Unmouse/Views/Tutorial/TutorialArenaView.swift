@@ -185,13 +185,12 @@ struct TutorialArenaView: View {
                 }
                 .offset(x: PuckDrop.dropX)
 
-            // Q holds the button wherever the pointer is. A drag gesture only
-            // tracked a hit on this circle, and the old 48pt stroke missed.
+            // The hold-click key grabs the button wherever the pointer is.
             Circle()
                 .fill(Color.primary.opacity(0.12))
                 .overlay { Circle().strokeBorder(.primary, lineWidth: 1.5) }
                 .overlay {
-                    Text("Q")
+                    Text(ShortcutLabel.first(model.config.bindings.free.toggleDrag))
                         .font(.subheadline.weight(.medium))
                 }
                 .frame(width: 72, height: 72)
@@ -238,7 +237,7 @@ struct TutorialArenaView: View {
         model.noteArena(event)
     }
 
-    /// Space or Q released the button. Count a drop only while the puck step is up.
+    /// Hold-click or left click released the button. Count a drop only while the puck step is up.
     private func settlePuck() {
         let hitDrop = PuckDrop.contains(offset: puckOffset)
         InputTrace.log(

@@ -48,7 +48,7 @@ struct GridAimTests {
         #expect(cue?.frames.count == 2)
         #expect(cue?.frames.first == cell)
         #expect(cue?.title == KeycapMarkup.typeKeys(grid.aimPath(containing: point)[0].label))
-        #expect(cue?.detail == "Last key opens a finer grid. `␣` clicks the rectangle so far.")
+        #expect(cue?.detail == "Last key opens a finer grid. `F` clicks the rectangle so far.")
         let free = grid.guide(at: point, click: .toFree)
         #expect(free?.frames.count == 2)
         #expect(free?.detail == "Last key opens a finer grid. Then `⌥` — drop into free mode.")

@@ -147,7 +147,7 @@ struct SettingsView: View {
                 unit: "ms",
                 value: tapMaxMsBinding,
                 range: 50...800,
-                hint: "How long a bare ⌘ or ⌥ can be held and still count as a tap that opens grid or free mode. A longer hold is left for the app underneath."
+                hint: "How long a bare \(ShortcutLabel.first(model.config.bindings.global.gridMode)) or \(ShortcutLabel.first(model.config.bindings.global.freeMode)) can be held and still count as a tap that opens grid or free mode. A longer hold is left for the app underneath."
             )
             SteppedDoubleRow(
                 "Mode idle timeout",
@@ -198,11 +198,11 @@ struct SettingsView: View {
             SteppedIntRow(
                 "Depth",
                 value: gridInt(\.depth, 1...3),
-                hint: "How many finer grids a finished cell can open. The last character of a cell draws the next grid immediately. Space clicks the rectangle chosen so far."
+                hint: "How many finer grids a finished cell can open. The last character of a cell draws the next grid immediately. \(ShortcutLabel.list(model.config.bindings.grid.leftClick)) clicks the rectangle chosen so far."
             )
             optionHint(
                 "Chars",
-                hint: "Each cell shows two characters, or three when the alphabet is too small to name every cell in two. Cells that share a first character form one rectangle. That key selects it, and space clicks its center. Later characters narrow to one cell."
+                hint: "Each cell shows two characters, or three when the alphabet is too small to name every cell in two. Cells that share a first character form one rectangle. That key selects it, and \(ShortcutLabel.first(model.config.bindings.grid.leftClick)) clicks its center. Later characters narrow to one cell."
             ) {
                 trailingField(gridString(\.chars))
             }
@@ -421,10 +421,10 @@ struct SettingsView: View {
             HexColorPicker(title: "Line", hint: "Border of each hint bubble.", hex: colorHex(\.hintLine), onChange: commit)
         }
         Section("Shortcuts") {
-            bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode. Space and Return both work.")
-            bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Control+Space and Control+Return by default. Control-click is the Mac right-click.")
+            bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode.")
+            bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Control-click is the Mac right-click.")
             bind("To free", hintBind(\.toFree), hint: "Alone tap moves onto the selected on-screen control and switches into free mode.")
-            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. Escape by default. ⌘⌥⌃ chords such as ⌘Tab also leave and reach the system; ⌘T and ⌘1–9 stay in hint.")
+            bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. ⌘⌥⌃ chords such as ⌘Tab also leave and reach the system; ⌘T and ⌘1–9 stay in hint.")
             bind("Back", hintBind(\.back), hint: "Deletes the last character of the query.")
         }
     }

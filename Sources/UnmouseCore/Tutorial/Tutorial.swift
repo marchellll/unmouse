@@ -65,7 +65,7 @@ public enum TutorialEvent: Equatable, Sendable {
     }
 }
 
-/// Practice puck. Home is left of center, the ring is right. Q grabs from anywhere;
+/// Practice puck. Home is left of center, the ring is right. The hold-click key grabs from anywhere;
 /// the puck then follows the pointer instead of waiting for a hit on its circle.
 public enum PuckDrop {
     public static let homeX: CGFloat = -80
@@ -121,34 +121,44 @@ public struct TutorialStep: Equatable, Sendable, Identifiable {
 }
 
 public enum TutorialCatalog {
-    public static func steps(for session: TutorialSessionID) -> [TutorialStep] {
-        switch session {
+    public static func steps(for session: TutorialSessionID, bindings: BindingsConfig = .init()) -> [TutorialStep] {
+        let b = bindings
+        func cap(_ keys: [String]) -> String { ShortcutLabel.marks(keys.first ?? "?") }
+        let steer = [b.free.moveLeft, b.free.moveDown, b.free.moveUp, b.free.moveRight]
+            .map(cap)
+            .joined(separator: " ")
+        let zoomIn = ShortcutLabel.marks(b.free.scrollUp.first ?? "?")
+        let zoomOut = ShortcutLabel.marks(b.free.scrollDown.first ?? "?")
+        let grid = cap(b.global.gridMode)
+        let free = cap(b.global.freeMode)
+        let hint = cap(b.global.hintMode)
+        return switch session {
         case .freeOnly:
             [
-                .init(id: "f1", prompt: "Tap `⌥` — free mode.", required: .enteredFree),
-                .init(id: "f2", prompt: "Steer with `H` `J` `K` `L` toward the green target.", required: .steeredAll, arenaFocus: .leftTarget),
-                .init(id: "f3", prompt: "Hold `Z` and move — go faster.", required: .heldFaster),
-                .init(id: "f4", prompt: "Hold `X` and move — go slower.", required: .heldSlower),
-                .init(id: "f5", prompt: "`␣` — click the green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
-                .init(id: "f6", prompt: "`D` — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
-                .init(id: "f7", prompt: "Scroll the blue strip — `M` left, `,` down, `.` up, `/` right.", required: .scrolledAll, arenaFocus: .scroll),
-                .init(id: "f8", prompt: "Zoom the blue strip — `⌘` + `.` in, `⌘` + `,` out.", required: .zoomedAll, arenaFocus: .scroll),
-                .init(id: "f9", prompt: "`R` — grab the puck.", required: .dragStarted, arenaFocus: .drag),
-                .init(id: "f10", prompt: "Drag the puck into the ring, then `␣` to drop.", required: .hitDragDrop, arenaFocus: .drag),
-                .init(id: "f11", prompt: "`⎋` — leave free mode.", required: .cancelled),
+                .init(id: "f1", prompt: "Tap \(free) — free mode.", required: .enteredFree),
+                .init(id: "f2", prompt: "Steer with \(steer) toward the green target.", required: .steeredAll, arenaFocus: .leftTarget),
+                .init(id: "f3", prompt: "Hold \(cap(b.free.faster)) and move — go faster.", required: .heldFaster),
+                .init(id: "f4", prompt: "Hold \(cap(b.free.slower)) and move — go slower.", required: .heldSlower),
+                .init(id: "f5", prompt: "\(cap(b.free.leftClick)) — click the green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
+                .init(id: "f6", prompt: "\(cap(b.free.rightClick)) — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
+                .init(id: "f7", prompt: "Scroll the blue strip — \(cap(b.free.scrollLeft)) left, \(cap(b.free.scrollDown)) down, \(cap(b.free.scrollUp)) up, \(cap(b.free.scrollRight)) right.", required: .scrolledAll, arenaFocus: .scroll),
+                .init(id: "f8", prompt: "Zoom the blue strip — `⌘` + \(zoomIn) in, `⌘` + \(zoomOut) out.", required: .zoomedAll, arenaFocus: .scroll),
+                .init(id: "f9", prompt: "\(cap(b.free.toggleDrag)) — grab the puck.", required: .dragStarted, arenaFocus: .drag),
+                .init(id: "f10", prompt: "Drag the puck into the ring, then \(cap(b.free.leftClick)) to drop.", required: .hitDragDrop, arenaFocus: .drag),
+                .init(id: "f11", prompt: "\(cap(b.free.cancel)) — leave free mode.", required: .cancelled),
             ]
         case .aimAndHit:
             [
                 .init(
                     id: "a1",
-                    prompt: "Tap `⌘` — open the grid.",
+                    prompt: "Tap \(grid) — open the grid.",
                     required: .hitLeftTarget,
                     arenaFocus: .leftTarget,
                     gridGuide: .left
                 ),
                 .init(
                     id: "a2",
-                    prompt: "Tap `⌘` — open the grid over the orange target.",
+                    prompt: "Tap \(grid) — open the grid over the orange target.",
                     required: .hitRightTarget,
                     arenaFocus: .rightTarget,
                     gridGuide: .right
@@ -156,25 +166,25 @@ public enum TutorialCatalog {
             ]
         case .aimThenAct:
             [
-                .init(id: "c1", prompt: "`⌘` — open the grid.", required: .enteredGrid),
+                .init(id: "c1", prompt: "\(grid) — open the grid.", required: .enteredGrid),
                 .init(
                     id: "c2",
                     prompt: "Type a cell near the green target.",
-                    detail: "Then `⌥` — drop into free mode.",
+                    detail: "Then \(cap(b.grid.toFree)) — drop into free mode.",
                     required: .gridToFree,
                     arenaFocus: .leftTarget,
                     gridGuide: .toFree
                 ),
-                .init(id: "c3", prompt: "Nudge onto the target with `H` `J` `K` `L`.", required: .moved, arenaFocus: .leftTarget),
-                .init(id: "c4", prompt: "`␣` — click it.", required: .hitLeftTarget, arenaFocus: .leftTarget),
+                .init(id: "c3", prompt: "Nudge onto the target with \(steer).", required: .moved, arenaFocus: .leftTarget),
+                .init(id: "c4", prompt: "\(cap(b.free.leftClick)) — click it.", required: .hitLeftTarget, arenaFocus: .leftTarget),
             ]
         case .hintMode:
             [
-                .init(id: "h1", prompt: "`⌘` + `⇧` + `␣` — show hints.", required: .enteredHint, arenaFocus: .hintButton),
+                .init(id: "h1", prompt: "\(hint) — show hints.", required: .enteredHint, arenaFocus: .hintButton),
                 .init(id: "h2", prompt: "Type the code on the labeled button.", required: .hintArmed, arenaFocus: .hintButton),
-                .init(id: "h3", prompt: "`␣` — click via hint.", required: .hitLeftTarget, arenaFocus: .hintButton),
-                .init(id: "h4", prompt: "`⌘` + `⇧` + `␣` again. Arm the Menu target.", required: .hintArmed, arenaFocus: .rightTarget),
-                .init(id: "h5", prompt: "`⌃` + `␣` — right-click Menu.", required: .hitRightTarget, arenaFocus: .rightTarget),
+                .init(id: "h3", prompt: "\(cap(b.hint.leftClick)) — click via hint.", required: .hitLeftTarget, arenaFocus: .hintButton),
+                .init(id: "h4", prompt: "\(hint) again. Arm the Menu target.", required: .hintArmed, arenaFocus: .rightTarget),
+                .init(id: "h5", prompt: "\(cap(b.hint.rightClick)) — right-click Menu.", required: .hitRightTarget, arenaFocus: .rightTarget),
             ]
         }
     }
@@ -196,15 +206,23 @@ public struct TutorialProgress: Equatable, Sendable {
     private var cellChosen = false
     /// Tenths of a second still needed on a started Z/X step. Nil before the first movement.
     public private(set) var speedTenthsLeft: Int?
+    /// Bindings the prompts name. Replaced when the config reloads.
+    public var bindings: BindingsConfig
 
-    public init(session: TutorialSessionID, stepIndex: Int = 0, completed: Bool = false) {
+    public init(
+        session: TutorialSessionID,
+        stepIndex: Int = 0,
+        completed: Bool = false,
+        bindings: BindingsConfig = .init()
+    ) {
         self.session = session
         self.stepIndex = stepIndex
         self.completed = completed
+        self.bindings = bindings
     }
 
     public var steps: [TutorialStep] {
-        TutorialCatalog.steps(for: session)
+        TutorialCatalog.steps(for: session, bindings: bindings)
     }
 
     public var current: TutorialStep? {
@@ -222,14 +240,15 @@ public struct TutorialProgress: Equatable, Sendable {
         guard let step = current else { return nil }
         if step.required == .zoomedAll, zooms.count == 1 {
             let missing = ZoomDirection.allCases.first { !zooms.contains($0) }
-            let chord = missing == .in ? "`⌘` + `.`" : "`⌘` + `,`"
+            let raw = missing == .in ? bindings.free.scrollUp.first : bindings.free.scrollDown.first
+            let chord = "`⌘` + \(ShortcutLabel.marks(raw ?? "?"))"
             return "\(step.prompt) Keep zooming \(missing == .in ? "in" : "out") \(chord)."
         }
         guard let tenths = speedTenthsLeft else { return step.prompt }
         let key: String
         switch step.required {
-        case .heldFaster: key = "Z"
-        case .heldSlower: key = "X"
+        case .heldFaster: key = ShortcutLabel.first(bindings.free.faster)
+        case .heldSlower: key = ShortcutLabel.first(bindings.free.slower)
         default: return step.prompt
         }
         return "\(step.prompt) Keep holding `\(key)` and move for \(tenths / 10).\(tenths % 10) more seconds."

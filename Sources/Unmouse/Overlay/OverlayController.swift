@@ -307,7 +307,8 @@ final class OverlayController {
         }
         let point = CGPoint(x: anchor.midX, y: anchor.midY)
         let screen = state.levels[0].origin
-        guide.apply(cue: state.guide(at: point, click: click), screenOrigin: screen, avoid: anchor)
+        let keys = GridGuideKeys(grid: model.config.bindings.grid)
+        guide.apply(cue: state.guide(at: point, click: click, keys: keys), screenOrigin: screen, avoid: anchor)
     }
 
     /// Keep compositingFilter forever — SwiftUI / AppKit clears it after ~2s otherwise.
