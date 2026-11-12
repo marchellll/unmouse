@@ -130,10 +130,10 @@ public enum TutorialCatalog {
                 .init(id: "f3", prompt: "Hold `Z` and move — go faster.", required: .heldFaster),
                 .init(id: "f4", prompt: "Hold `X` and move — go slower.", required: .heldSlower),
                 .init(id: "f5", prompt: "`␣` — click the green target.", required: .hitLeftTarget, arenaFocus: .leftTarget),
-                .init(id: "f6", prompt: "`A` — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
+                .init(id: "f6", prompt: "`D` — right-click the orange target.", required: .hitRightTarget, arenaFocus: .rightTarget),
                 .init(id: "f7", prompt: "Scroll the blue strip — `M` left, `,` down, `.` up, `/` right.", required: .scrolledAll, arenaFocus: .scroll),
                 .init(id: "f8", prompt: "Zoom the blue strip — `⌘` + `.` in, `⌘` + `,` out.", required: .zoomedAll, arenaFocus: .scroll),
-                .init(id: "f9", prompt: "`Q` — grab the puck.", required: .dragStarted, arenaFocus: .drag),
+                .init(id: "f9", prompt: "`R` — grab the puck.", required: .dragStarted, arenaFocus: .drag),
                 .init(id: "f10", prompt: "Drag the puck into the ring, then `␣` to drop.", required: .hitDragDrop, arenaFocus: .drag),
                 .init(id: "f11", prompt: "`⎋` — leave free mode.", required: .cancelled),
             ]
@@ -174,7 +174,7 @@ public enum TutorialCatalog {
                 .init(id: "h2", prompt: "Type the code on the labeled button.", required: .hintArmed, arenaFocus: .hintButton),
                 .init(id: "h3", prompt: "`␣` — click via hint.", required: .hitLeftTarget, arenaFocus: .hintButton),
                 .init(id: "h4", prompt: "`⌘` + `⇧` + `␣` again. Arm the Menu target.", required: .hintArmed, arenaFocus: .rightTarget),
-                .init(id: "h5", prompt: "`A` — right-click Menu.", required: .hitRightTarget, arenaFocus: .rightTarget),
+                .init(id: "h5", prompt: "`⌃` + `␣` — right-click Menu.", required: .hitRightTarget, arenaFocus: .rightTarget),
             ]
         }
     }

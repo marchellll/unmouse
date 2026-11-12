@@ -240,6 +240,14 @@ struct BindingMatcher {
         return false
     }
 
+    /// Bare click keys still match when ⌘ ⌥ ⌃ ⇧ are held. Those flags are stamped onto the click.
+    func matchesIgnoringClickModifiers(key: KeyKind, flags: CGEventFlags) -> Bool {
+        if matches(key: key, flags: flags, alone: false) { return true }
+        let bare = ClickModifiers.stripped(flags)
+        guard bare.rawValue != flags.rawValue else { return false }
+        return matches(key: key, flags: bare, alone: false)
+    }
+
     private func match(_ sc: Shortcut, key: KeyKind, flags: CGEventFlags, alone: Bool) -> Bool {
         if sc.isBareModifier {
             return alone && sameSide(sc.key, key)

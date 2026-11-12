@@ -34,9 +34,9 @@ Focusing a window moves the pointer to that window's center when the pointer is 
 
 | | Open | Then |
 |---|---|---|
-| Grid | Tap left ⌘ | Type a cell label. Space or Return left-clicks. `a` right-clicks, `s` middle-clicks, `d` moves without clicking. Delete steps back, Tab moves to the next screen, Escape cancels. |
-| Free | Tap left ⌥ | `j` `k` `l` `;` steer (arrows do the same). Hold `z` to go faster, `x` to go slower. `m` `,` `.` `/` scroll. `q` toggles a drag. Space or Return left-clicks and stays in free mode. Escape cancels. |
-| Hint | ⌘⇧Space | Type a label or search text, menus, windows, and apps. Space or Return activates the selection. Shift+Space or Shift+Return right-clicks. After 3 characters, ⌘1–⌘9 pick a top hit. Alone ⌘ opens the grid; alone ⌥ moves there and enters free mode. Delete edits the query, Escape cancels. ⌘Tab and other ⌘⌥⌃ chords leave hint and reach the system; ⌘T and ⌘1–9 stay. |
+| Grid | Tap left ⌘ | Type a cell label. `f`, Space, or Return left-clicks. `d` right-clicks, `s` middle-clicks. `r` holds a left click, `e` a right click, `w` a middle click, then drops into free mode so the drag can move. ⌘, ⌥, ⌃, or ⇧ on those keys is sent with the click. Delete steps back, Tab moves to the next screen, Escape cancels. |
+| Free | Tap left ⌥ | `j` `k` `l` `;` steer (arrows do the same). Hold `z` to go faster, `x` to go slower. `m` `,` `.` `/` scroll. `f` clicks, `d` right-clicks, `s` middle-clicks. `r` `e` `w` toggle a held left, right, or middle button. The same four modifiers pass through. Space or Return also left-clicks. Escape cancels. |
+| Hint | ⌘⇧Space | Type a label or search text, menus, windows, and apps. Space or Return activates the selection. Control+Space or Control+Return right-clicks. After 3 characters, ⌘1–⌘9 pick a top hit. Alone ⌘ opens the grid; alone ⌥ moves there and enters free mode. Delete edits the query, Escape cancels. ⌘Tab and other ⌘⌥⌃ chords leave hint and reach the system; ⌘T, ⌃Space, and ⌘1–9 stay. |
 
 On a finished grid cell, left ⌥ moves there before entering free mode. Settings shows the full binding list and can record new shortcuts.
 

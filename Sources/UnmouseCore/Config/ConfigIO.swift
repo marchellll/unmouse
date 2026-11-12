@@ -28,7 +28,7 @@ public enum ConfigError: Error, Equatable, CustomStringConvertible {
         case .gridShortcutOverlapsChars(let s):
             "grid shortcut \(s) duplicates a grid char"
         case .hintClickStealsTyping(let s):
-            "hint click \(s) is a bare letter — use shift+space (or similar) so letters type/search"
+            "hint click \(s) is a bare letter — use control+space (or similar) so letters type/search"
         case .parse(let m):
             m
         case .invalidShortcut(let m):
@@ -88,7 +88,8 @@ public enum ConfigValidator {
         checkDuplicates(mode: "global", groups: [b.global.gridMode, b.global.freeMode, b.global.hintMode])
         let gridBindings = [
             b.grid.back, b.grid.leftClick, b.grid.rightClick, b.grid.middleClick,
-            b.grid.moveOnly, b.grid.toFree, b.grid.cancel, b.grid.nextScreen,
+            b.grid.moveOnly, b.grid.toggleDrag, b.grid.toggleRightDrag, b.grid.toggleMiddleDrag,
+            b.grid.toFree, b.grid.cancel, b.grid.nextScreen,
         ]
         checkDuplicates(mode: "grid", groups: gridBindings)
         let gridChars = Set(g.chars.lowercased())
@@ -105,6 +106,7 @@ public enum ConfigValidator {
             b.free.moveLeft, b.free.moveDown, b.free.moveUp, b.free.moveRight,
             b.free.faster, b.free.slower, b.free.scrollUp, b.free.scrollDown,
             b.free.scrollLeft, b.free.scrollRight, b.free.toggleDrag,
+            b.free.toggleRightDrag, b.free.toggleMiddleDrag,
             b.free.leftClick, b.free.rightClick, b.free.middleClick, b.free.cancel,
         ])
         checkDuplicates(mode: "hint", groups: [

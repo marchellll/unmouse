@@ -296,9 +296,12 @@ struct SettingsView: View {
         }
         Section("Shortcuts") {
             bind("Back", gridBind(\.back), hint: "Undoes one step: clears a selected cell, then one typed character, then one nested level.", conflicts: overlapsGridChars(model.config.bindings.grid.back))
-            bind("Left click", gridBind(\.leftClick), hint: "Clicks the selected rectangle and leaves the grid. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released there instead of a new click.", conflicts: overlapsGridChars(model.config.bindings.grid.leftClick))
-            bind("Right click", gridBind(\.rightClick), hint: "With a cell selected, moves there, right-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.rightClick))
-            bind("Middle click", gridBind(\.middleClick), hint: "With a cell selected, moves there, middle-clicks, and leaves the grid.", conflicts: overlapsGridChars(model.config.bindings.grid.middleClick))
+            bind("Left click", gridBind(\.leftClick), hint: "Clicks the selected rectangle and leaves the grid. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released there instead of a new click. Command, Option, Control, or Shift held with the key is sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.leftClick))
+            bind("Right click", gridBind(\.rightClick), hint: "With a cell selected, moves there, right-clicks, and leaves the grid. Command, Option, Control, or Shift held with the key is sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.rightClick))
+            bind("Middle click", gridBind(\.middleClick), hint: "With a cell selected, moves there, middle-clicks, and leaves the grid. Command, Option, Control, or Shift held with the key is sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.middleClick))
+            bind("Hold click", gridBind(\.toggleDrag), hint: "Presses the left button and holds it, then switches to free mode so the pointer can drag. Press again to release. Command, Option, Control, or Shift held with the key is sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.toggleDrag))
+            bind("Hold right click", gridBind(\.toggleRightDrag), hint: "Holds the right button, then switches to free mode. Press again to release. Modifiers held with the key are sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.toggleRightDrag))
+            bind("Hold middle click", gridBind(\.toggleMiddleDrag), hint: "Holds the middle button, then switches to free mode. Press again to release. Modifiers held with the key are sent with the click.", conflicts: overlapsGridChars(model.config.bindings.grid.toggleMiddleDrag))
             bind("Move only", gridBind(\.moveOnly), hint: "Moves the pointer to the selected cell and leaves without clicking.", conflicts: overlapsGridChars(model.config.bindings.grid.moveOnly))
             bind("To free", gridBind(\.toFree), hint: "Moves to the selected cell and switches into free mode.", conflicts: overlapsGridChars(model.config.bindings.grid.toFree))
             bind("Cancel", gridBind(\.cancel), hint: "Leaves the grid. If a drag is held, stays in free mode and keeps the drag.", conflicts: overlapsGridChars(model.config.bindings.grid.cancel))
@@ -401,10 +404,12 @@ struct SettingsView: View {
             bind("Scroll down", freeBind(\.scrollDown))
             bind("Scroll left", freeBind(\.scrollLeft))
             bind("Scroll right", freeBind(\.scrollRight))
-            bind("Toggle drag", freeBind(\.toggleDrag), hint: "Presses the left button and holds it, so the pointer drags. Press again to release.")
-            bind("Left click", freeBind(\.leftClick), hint: "Left-clicks and stays in free mode. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released instead of a new click.")
-            bind("Right click", freeBind(\.rightClick), hint: "Right-clicks and stays in free mode.")
-            bind("Middle click", freeBind(\.middleClick), hint: "Middle-clicks and stays in free mode.")
+            bind("Hold click", freeBind(\.toggleDrag), hint: "Presses the left button and holds it, so the pointer drags. Press again to release. Command, Option, Control, or Shift held with the key is sent with the click.")
+            bind("Hold right click", freeBind(\.toggleRightDrag), hint: "Holds the right button. Press again to release. Modifiers held with the key are sent with the click.")
+            bind("Hold middle click", freeBind(\.toggleMiddleDrag), hint: "Holds the middle button. Press again to release. Modifiers held with the key are sent with the click.")
+            bind("Left click", freeBind(\.leftClick), hint: "Left-clicks and stays in free mode. Press it again within the system double-click time to double-click, and once more to triple-click. A held drag is released instead of a new click. Command, Option, Control, or Shift held with the key is sent with the click.")
+            bind("Right click", freeBind(\.rightClick), hint: "Right-clicks and stays in free mode. Modifiers held with the key are sent with the click.")
+            bind("Middle click", freeBind(\.middleClick), hint: "Middle-clicks and stays in free mode. Modifiers held with the key are sent with the click.")
             bind("Cancel", freeBind(\.cancel), hint: "Leaves free mode. A held drag is released first.")
         }
     }
@@ -417,7 +422,7 @@ struct SettingsView: View {
         }
         Section("Shortcuts") {
             bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode. Space and Return both work.")
-            bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Shift+Space and Shift+Return by default.")
+            bind("Right click", hintBind(\.rightClick), hint: "Right-clicks an on-screen result and leaves hint mode. Control+Space and Control+Return by default. Control-click is the Mac right-click.")
             bind("To free", hintBind(\.toFree), hint: "Alone tap moves onto the selected on-screen control and switches into free mode.")
             bind("Cancel", hintBind(\.cancel), hint: "Closes hint mode without moving the pointer. Escape by default. ⌘⌥⌃ chords such as ⌘Tab also leave and reach the system; ⌘T and ⌘1–9 stay in hint.")
             bind("Back", hintBind(\.back), hint: "Deletes the last character of the query.")

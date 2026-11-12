@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import Testing
 @testable import UnmouseCore
@@ -72,12 +73,19 @@ struct ConfigTests {
         var c = AppConfig.default
         c.grid.chars = "qwertyuiopasdfghjkl;"
         let flagged = ConfigValidator.validate(c)
-        #expect(flagged.contains(.gridShortcutOverlapsChars("a")))
-        #expect(flagged.contains(.gridShortcutOverlapsChars("s")))
+        #expect(flagged.contains(.gridShortcutOverlapsChars("f")))
         #expect(flagged.contains(.gridShortcutOverlapsChars("d")))
-        c.bindings.grid.rightClick = ["b"]
-        c.bindings.grid.middleClick = ["n"]
-        c.bindings.grid.moveOnly = ["v"]
+        #expect(flagged.contains(.gridShortcutOverlapsChars("s")))
+        #expect(flagged.contains(.gridShortcutOverlapsChars("r")))
+        #expect(flagged.contains(.gridShortcutOverlapsChars("e")))
+        #expect(flagged.contains(.gridShortcutOverlapsChars("w")))
+        c.bindings.grid.leftClick = ["1"]
+        c.bindings.grid.rightClick = ["2"]
+        c.bindings.grid.middleClick = ["3"]
+        c.bindings.grid.toggleDrag = ["4"]
+        c.bindings.grid.toggleRightDrag = ["5"]
+        c.bindings.grid.toggleMiddleDrag = ["6"]
+        c.bindings.grid.moveOnly = []
         let clear = ConfigValidator.validate(c)
         #expect(!clear.contains { if case .gridShortcutOverlapsChars = $0 { true } else { false } })
     }
@@ -156,6 +164,12 @@ struct ConfigTests {
         var multiError: ShortcutParseError?
         do { _ = try ShortcutParser.parse("h+j") } catch let e as ShortcutParseError { multiError = e }
         #expect(multiError == .comboWithMultipleKeys("h+j"))
+    }
+
+    @Test func clickModifiersKeepTheFourAndDropTheRest() {
+        let flags: CGEventFlags = [.maskCommand, .maskAlternate, .maskControl, .maskShift, .maskSecondaryFn]
+        #expect(ClickModifiers.carried(flags) == [.maskCommand, .maskAlternate, .maskControl, .maskShift])
+        #expect(ClickModifiers.stripped(flags) == .maskSecondaryFn)
     }
 
     /// Presets live once, at the repo root. This file is Tests/UnmouseCoreTests/ConfigTests.swift.

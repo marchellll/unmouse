@@ -74,7 +74,7 @@ struct GridAimTests {
         let cue = grid.guide(at: point, click: .right)
         #expect(cue?.frames == [sub.frame])
         #expect(cue?.title == KeycapMarkup.typeKeys(sub.label))
-        #expect(cue?.detail == "`A` right-clicks this cell.")
+        #expect(cue?.detail == "`D` right-clicks this cell.")
     }
 
     @Test func wrongSubgridSaysToGoBack() {

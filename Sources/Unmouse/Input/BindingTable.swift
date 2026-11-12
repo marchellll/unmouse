@@ -17,6 +17,9 @@ struct BindingTable {
         var rightClick: BindingMatcher
         var middleClick: BindingMatcher
         var moveOnly: BindingMatcher
+        var toggleDrag: BindingMatcher
+        var toggleRightDrag: BindingMatcher
+        var toggleMiddleDrag: BindingMatcher
         var toFree: BindingMatcher
     }
 
@@ -26,6 +29,8 @@ struct BindingTable {
         var faster: BindingMatcher
         var slower: BindingMatcher
         var toggleDrag: BindingMatcher
+        var toggleRightDrag: BindingMatcher
+        var toggleMiddleDrag: BindingMatcher
         var leftClick: BindingMatcher
         var rightClick: BindingMatcher
         var middleClick: BindingMatcher
@@ -68,6 +73,9 @@ struct BindingTable {
             rightClick: BindingMatcher(gr.rightClick),
             middleClick: BindingMatcher(gr.middleClick),
             moveOnly: BindingMatcher(gr.moveOnly),
+            toggleDrag: BindingMatcher(gr.toggleDrag),
+            toggleRightDrag: BindingMatcher(gr.toggleRightDrag),
+            toggleMiddleDrag: BindingMatcher(gr.toggleMiddleDrag),
             toFree: BindingMatcher(gr.toFree)
         )
         let f = bindings.free
@@ -87,6 +95,8 @@ struct BindingTable {
             faster: BindingMatcher(f.faster),
             slower: BindingMatcher(f.slower),
             toggleDrag: BindingMatcher(f.toggleDrag),
+            toggleRightDrag: BindingMatcher(f.toggleRightDrag),
+            toggleMiddleDrag: BindingMatcher(f.toggleMiddleDrag),
             leftClick: BindingMatcher(f.leftClick),
             rightClick: BindingMatcher(f.rightClick),
             middleClick: BindingMatcher(f.middleClick),

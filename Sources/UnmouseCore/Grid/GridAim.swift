@@ -143,9 +143,9 @@ public enum GridGuideCopy {
     public static func detail(opensFiner: Bool, click: GridGuideClick) -> String {
         switch (opensFiner, click) {
         case (true, .left): "Last key opens a finer grid. `␣` clicks the rectangle so far."
-        case (true, .right): "Last key opens a finer grid. `A` right-clicks the rectangle so far."
+        case (true, .right): "Last key opens a finer grid. `D` right-clicks the rectangle so far."
         case (false, .left): "`␣` hits this cell."
-        case (false, .right): "`A` right-clicks this cell."
+        case (false, .right): "`D` right-clicks this cell."
         case (true, .toFree): "Last key opens a finer grid. Then `⌥` — drop into free mode."
         case (false, .toFree): "Then `⌥` — drop into free mode."
         }

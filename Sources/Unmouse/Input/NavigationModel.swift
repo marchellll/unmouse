@@ -15,7 +15,11 @@ final class NavigationModel {
     var hintBubbles: [HintBubble] = []
     /// Cached once on enterHint — overlay body must not re-query AX each redraw.
     var hintScreenFrame: CGRect = .zero
-    var dragging = false
+    /// Button held down for a drag. Nil when nothing is held.
+    var dragButton: MouseButton?
+    /// Modifiers captured when the hold started, so the drag stays a ⌘-click and the like.
+    var dragFlags: CGEventFlags = []
+    var dragging: Bool { dragButton != nil }
     var bindings = BindingTable.empty
     let motion = FreeMotion()
     var onTutorial: ((TutorialEvent) -> Void)?
@@ -347,7 +351,9 @@ final class NavigationModel {
         let keepSpeed = mode == .free && isFreeSpeedKey(kind)
         // Hint keeps ⌘T / ⌘0–9; other ⌘⌥⌃ chords pass through and leave hint (⌘Tab, etc.).
         let keepHintChord = mode == .hint && Self.isHintOwnedChord(kind: kind, flags: flags)
-        if !hintShortcut, !keepHintChord, !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed,
+        let keepHintRight = mode == .hint && bindings.hint.rightClick.matches(key: kind, flags: flags, alone: false)
+        if !hintShortcut, !keepHintChord, !keepHintRight, !capturesClickChord(kind: kind, flags: flags),
+            !capturesCommandScroll(kind: kind, flags: flags), !keepSpeed,
             passSystemChord(token: token, flags: flags, down: down, source: source) {
             InputTrace.log("nav chord passthrough \(token) \(down ? "↓" : "↑")")
             return false
@@ -530,12 +536,28 @@ final class NavigationModel {
         if b.nextScreen.matches(key: kind, flags: flags, alone: false) {
             cycleScreen(&state); gridState = state; app.overlayController?.refreshGrid(); return true
         }
+        if let matched = clickMatch(b.toggleDrag, key: kind, flags: flags) {
+            performGridHold(.left, flags: matched, state: state); return true
+        }
+        if let matched = clickMatch(b.toggleRightDrag, key: kind, flags: flags) {
+            performGridHold(.right, flags: matched, state: state); return true
+        }
+        if let matched = clickMatch(b.toggleMiddleDrag, key: kind, flags: flags) {
+            performGridHold(.middle, flags: matched, state: state); return true
+        }
         var finalize: GridFinalizeAction?
-        if b.leftClick.matches(key: kind, flags: flags, alone: false)        { finalize = .leftClick }
-        else if b.rightClick.matches(key: kind, flags: flags, alone: false)  { finalize = .rightClick }
-        else if b.middleClick.matches(key: kind, flags: flags, alone: false) { finalize = .middleClick }
-        else if b.moveOnly.matches(key: kind, flags: flags, alone: false)    { finalize = .moveOnly }
-        else if b.toFree.matches(key: kind, flags: flags, alone: kind.isModifier) { finalize = .toFree }
+        var clickFlags = CGEventFlags()
+        if let matched = clickMatch(b.leftClick, key: kind, flags: flags) {
+            finalize = .leftClick; clickFlags = matched
+        } else if let matched = clickMatch(b.rightClick, key: kind, flags: flags) {
+            finalize = .rightClick; clickFlags = matched
+        } else if let matched = clickMatch(b.middleClick, key: kind, flags: flags) {
+            finalize = .middleClick; clickFlags = matched
+        } else if b.moveOnly.matches(key: kind, flags: flags, alone: false) {
+            finalize = .moveOnly
+        } else if b.toFree.matches(key: kind, flags: flags, alone: kind.isModifier) {
+            finalize = .toFree
+        }
         let ch = kind.character
         let decision = GridInputRouter.decide(
             character: ch,
@@ -548,7 +570,7 @@ final class NavigationModel {
             commitGridCharacter(c, state: &state); return true
         case .finalize(let action):
             if action == .toFree, kind.isModifier { consumeFreeExitUp = true }
-            performGridFinalize(action, state: state); return true
+            performGridFinalize(action, state: state, clickFlags: clickFlags); return true
         case .descend(let c):
             if state.descend() { commitGridCharacter(c, state: &state) }
             return true
@@ -584,16 +606,16 @@ final class NavigationModel {
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         let cg = CoordinateSpace.appKitToCGEvent(center, primaryHeight: primaryH)
         InputTrace.log("grid move \(InputTrace.point(cg))")
-        if dragging {
+        if let button = dragButton {
             let current = PointerController.location
-            PointerController.moveBy(dx: cg.x - current.x, dy: cg.y - current.y, dragging: true)
+            PointerController.moveBy(dx: cg.x - current.x, dy: cg.y - current.y, drag: button, flags: dragFlags)
         } else {
             PointerController.move(to: cg)
         }
         app.overlayController?.revealSystemCursor()
     }
 
-    private func performGridFinalize(_ action: GridFinalizeAction, state: GridState) {
+    private func performGridFinalize(_ action: GridFinalizeAction, state: GridState, clickFlags: CGEventFlags = []) {
         guard let point = state.prospectiveCenter else {
             if action == .toFree { enterFree(fromGrid: true) } else { exitToIdle(keepDrag: dragging) }
             return
@@ -602,12 +624,16 @@ final class NavigationModel {
         PointerController.move(to: CoordinateSpace.appKitToCGEvent(point, primaryHeight: primaryH))
         switch action {
         case .leftClick:
-            if dragging { endDrag(notifyTutorial: true) } else { performLeftClick() }
+            if dragging { endDrag(notifyTutorial: true) } else { performLeftClick(flags: clickFlags) }
             exitToIdle()
         case .rightClick:
-            PointerController.click(.right); onTutorial?(.rightClick); exitToIdle()
+            if dragButton == .right { endDrag(notifyTutorial: true) }
+            else { PointerController.click(.right, flags: clickFlags); onTutorial?(.rightClick) }
+            exitToIdle()
         case .middleClick:
-            PointerController.click(.middle); exitToIdle()
+            if dragButton == .middle { endDrag(notifyTutorial: true) }
+            else { PointerController.click(.middle, flags: clickFlags) }
+            exitToIdle()
         case .moveOnly:
             exitToIdle(keepDrag: dragging)
             if dragging { enterFree(fromGrid: false) }
@@ -634,26 +660,28 @@ final class NavigationModel {
             if dragging { endDrag(notifyTutorial: false) }
             exitToIdle(); onTutorial?(.cancelled); return true
         }
-        if b.toggleDrag.matches(key: kind, flags: flags, alone: false) {
-            if dragging {
-                endDrag(notifyTutorial: true)
-            } else {
-                PointerController.mouseDown(.left)
-                dragging = true
-                motion.heldKeys.setDragging(true)
-                onTutorial?(.dragStarted)
-            }
-            return true
+        if let matched = clickMatch(b.toggleDrag, key: kind, flags: flags) {
+            toggleHold(.left, flags: matched); return true
         }
-        if b.leftClick.matches(key: kind, flags: flags, alone: false) {
-            if dragging { endDrag(notifyTutorial: true) } else { performLeftClick() }
+        if let matched = clickMatch(b.toggleRightDrag, key: kind, flags: flags) {
+            toggleHold(.right, flags: matched); return true
+        }
+        if let matched = clickMatch(b.toggleMiddleDrag, key: kind, flags: flags) {
+            toggleHold(.middle, flags: matched); return true
+        }
+        if let matched = clickMatch(b.leftClick, key: kind, flags: flags) {
+            if dragging { endDrag(notifyTutorial: true) } else { performLeftClick(flags: matched) }
             endFreeModeIfNeeded(); return true
         }
-        if b.rightClick.matches(key: kind, flags: flags, alone: false) {
-            PointerController.click(.right); onTutorial?(.rightClick); endFreeModeIfNeeded(); return true
+        if let matched = clickMatch(b.rightClick, key: kind, flags: flags) {
+            if dragButton == .right { endDrag(notifyTutorial: true) }
+            else { PointerController.click(.right, flags: matched); onTutorial?(.rightClick) }
+            endFreeModeIfNeeded(); return true
         }
-        if b.middleClick.matches(key: kind, flags: flags, alone: false) {
-            PointerController.click(.middle); endFreeModeIfNeeded(); return true
+        if let matched = clickMatch(b.middleClick, key: kind, flags: flags) {
+            if dragButton == .middle { endDrag(notifyTutorial: true) }
+            else { PointerController.click(.middle, flags: matched) }
+            endFreeModeIfNeeded(); return true
         }
         // Movement/scroll: tick handles motion; fire tutorial events on key-down.
         var steered = false
@@ -688,6 +716,26 @@ final class NavigationModel {
         guard flags.contains(.maskCommand) else { return false }
         let bare = CGEventFlags(rawValue: flags.rawValue & ~CGEventFlags.maskCommand.rawValue)
         return bindings.matchesScroll(direction, key: key, flags: bare)
+    }
+
+    /// ⌘ ⌥ ⌃ ⇧ plus a click or hold key stays here and is posted as that modified click.
+    private func capturesClickChord(kind: KeyKind, flags: CGEventFlags) -> Bool {
+        guard mode == .free || mode == .grid, ClickModifiers.carried(flags).rawValue != 0 else { return false }
+        let matchers: [BindingMatcher] = mode == .free
+            ? [
+                bindings.free.toggleDrag, bindings.free.toggleRightDrag, bindings.free.toggleMiddleDrag,
+                bindings.free.leftClick, bindings.free.rightClick, bindings.free.middleClick,
+            ]
+            : [
+                bindings.grid.toggleDrag, bindings.grid.toggleRightDrag, bindings.grid.toggleMiddleDrag,
+                bindings.grid.leftClick, bindings.grid.rightClick, bindings.grid.middleClick,
+            ]
+        return matchers.contains { $0.matchesIgnoringClickModifiers(key: kind, flags: flags) }
+    }
+
+    private func clickMatch(_ matcher: BindingMatcher, key: KeyKind, flags: CGEventFlags) -> CGEventFlags? {
+        guard matcher.matchesIgnoringClickModifiers(key: key, flags: flags) else { return nil }
+        return ClickModifiers.carried(flags)
     }
 
     private func capturesCommandScroll(kind: KeyKind, flags: CGEventFlags) -> Bool {
@@ -902,14 +950,14 @@ final class NavigationModel {
     /// `repeatOnly` swallows the key only when it continues a click still inside the system interval.
     /// Idle uses that so a second press double-clicks and a third triple-clicks, then the key types again.
     @discardableResult
-    private func performLeftClick(repeatOnly: Bool = false) -> Bool {
+    private func performLeftClick(repeatOnly: Bool = false, flags: CGEventFlags = []) -> Bool {
         let window = UInt64(NSEvent.doubleClickInterval * 1_000_000_000)
         guard let state = leftClicks.press(
             now: DispatchTime.now().uptimeNanoseconds,
             window: window,
             repeatOnly: repeatOnly
         ) else { return false }
-        PointerController.click(.left, from: state)
+        PointerController.click(.left, from: state, flags: flags)
         onTutorial?(.leftClick)
         return true
     }
@@ -920,10 +968,42 @@ final class NavigationModel {
     }
 
     private func endDrag(notifyTutorial: Bool) {
-        PointerController.mouseUp(.left)
-        dragging = false
+        if let button = dragButton {
+            PointerController.mouseUp(button, flags: dragFlags)
+        }
+        dragButton = nil
+        dragFlags = []
         motion.heldKeys.setDragging(false)
         if notifyTutorial { onTutorial?(.dragDropped) }
+    }
+
+    private func toggleHold(_ button: MouseButton, flags: CGEventFlags) {
+        if dragButton == button {
+            endDrag(notifyTutorial: true)
+            return
+        }
+        if dragButton != nil { endDrag(notifyTutorial: false) }
+        PointerController.mouseDown(button, flags: flags)
+        dragButton = button
+        dragFlags = flags
+        motion.heldKeys.setDragging(true)
+        onTutorial?(.dragStarted)
+    }
+
+    /// Move onto the aimed cell when there is one, hold the button, and drop into free mode so the drag can move.
+    private func performGridHold(_ button: MouseButton, flags: CGEventFlags, state: GridState) {
+        if dragButton != nil, dragButton != button {
+            endDrag(notifyTutorial: false)
+        }
+        if dragButton == button {
+            toggleHold(button, flags: flags)
+            return
+        }
+        if let center = state.prospectiveCenter {
+            moveCursor(to: center)
+        }
+        toggleHold(button, flags: flags)
+        enterFree(fromGrid: true)
     }
 
     // MARK: - Display link
@@ -943,7 +1023,9 @@ final class NavigationModel {
     private func tickFreeMode(dt: TimeInterval) {
         guard mode == .free else { return }
         let origin = PointerController.location
-        let result = motion.tick(dt: dt, free: app.config.free, bindings: bindings.free, dragging: dragging)
+        let result = motion.tick(
+            dt: dt, free: app.config.free, bindings: bindings.free, drag: dragButton, dragFlags: dragFlags
+        )
         if dragging, app.tutorial?.progress?.arenaFocus == .drag {
             let next = PointerController.location
             // CGEvent +y is down, same direction as the puck's SwiftUI offset.

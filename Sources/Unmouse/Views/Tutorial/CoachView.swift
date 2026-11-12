@@ -56,8 +56,9 @@ struct CoachView: View {
         let cancel = label(b.grid.cancel)
 
         if state.isCellSelected {
+            let movePart = b.grid.moveOnly.isEmpty ? "" : " · \(move) move"
             return [
-                "\(space) click · \(right) right · \(move) move",
+                "\(space) click · \(right) right\(movePart)",
                 "\(free) free · \(back) back · \(cancel) cancel",
             ]
         }

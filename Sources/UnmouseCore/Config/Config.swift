@@ -146,7 +146,7 @@ public struct GridConfig: Codable, Sendable, Equatable {
         subLabel: String = "#FFFFFF",
         subGlow: String = "#FFFFFF",
         subGlowRadius: Double = 8,
-        chars: String = "qwertyuiopfghjkl;",
+        chars: String = "qtyuiopaghjkl;",
         depth: Int = 2,
         selectionDim: String = "#00000080",
         selectionBlur: Int = 12,

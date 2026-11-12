@@ -64,9 +64,9 @@ enum PointerController {
     static func showCursor() {
         var p = location
         p.x += 1
-        postMove(to: p, dx: 1, dy: 0, dragging: false)
+        postMove(to: p, dx: 1, dy: 0)
         p.x -= 1
-        postMove(to: p, dx: -1, dy: 0, dragging: false)
+        postMove(to: p, dx: -1, dy: 0)
     }
 
     static func move(to point: CGPoint) {
@@ -76,8 +76,7 @@ enum PointerController {
         postMove(
             to: point,
             dx: Int64((point.x - here.x).rounded()),
-            dy: Int64((point.y - here.y).rounded()),
-            dragging: false
+            dy: Int64((point.y - here.y).rounded())
         )
     }
 
@@ -87,7 +86,7 @@ enum PointerController {
         move(to: CoordinateSpace.appKitToCGEvent(point, primaryHeight: cachedPrimaryHeight))
     }
 
-    static func moveBy(dx: CGFloat, dy: CGFloat, dragging: Bool = false) {
+    static func moveBy(dx: CGFloat, dy: CGFloat, drag: MouseButton? = nil, flags: CGEventFlags = []) {
         pendingX += Double(dx)
         pendingY += Double(dy)
         let ix = Int64(pendingX.rounded(.towardZero))
@@ -98,24 +97,41 @@ enum PointerController {
         var p = location
         p.x += CGFloat(ix)
         p.y += CGFloat(iy)
-        postMove(to: p, dx: ix, dy: iy, dragging: dragging)
+        postMove(to: p, dx: ix, dy: iy, drag: drag, flags: flags)
     }
 
-    private static func postMove(to point: CGPoint, dx: Int64, dy: Int64, dragging: Bool) {
-        let type: CGEventType = dragging ? .leftMouseDragged : .mouseMoved
+    private static func postMove(
+        to point: CGPoint, dx: Int64, dy: Int64, drag: MouseButton? = nil, flags: CGEventFlags = []
+    ) {
+        let type: CGEventType
+        let button: CGMouseButton
+        switch drag {
+        case .left:
+            type = .leftMouseDragged
+            button = .left
+        case .right:
+            type = .rightMouseDragged
+            button = .right
+        case .middle:
+            type = .otherMouseDragged
+            button = .center
+        case nil:
+            type = .mouseMoved
+            button = .left
+        }
         guard let event = CGEvent(
             mouseEventSource: source,
             mouseType: type,
             mouseCursorPosition: point,
-            mouseButton: .left
+            mouseButton: button
         ) else { return }
         event.setIntegerValueField(.mouseEventDeltaX, value: dx)
         event.setIntegerValueField(.mouseEventDeltaY, value: dy)
-        send(event)
+        send(event, flags: flags)
         aim.remember(live: systemLocation, point: point)
     }
 
-    static func click(_ button: MouseButton, count: Int = 1, from: Int = 1) {
+    static func click(_ button: MouseButton, count: Int = 1, from: Int = 1, flags: CGEventFlags = []) {
         let (downType, upType, cgButton) = mapping(button)
         let p = location
         InputTrace.log("click \(button.rawValue) at \(InputTrace.point(p))")
@@ -124,30 +140,30 @@ enum PointerController {
             let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: p, mouseButton: cgButton)
             down?.setIntegerValueField(.mouseEventClickState, value: Int64(i))
             stampStill(down)
-            send(down)
+            send(down, flags: flags)
             let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: p, mouseButton: cgButton)
             up?.setIntegerValueField(.mouseEventClickState, value: Int64(i))
             stampStill(up)
-            send(up)
+            send(up, flags: flags)
         }
     }
 
-    static func mouseDown(_ button: MouseButton = .left) {
+    static func mouseDown(_ button: MouseButton = .left, flags: CGEventFlags = []) {
         let (downType, _, cgButton) = mapping(button)
         let p = location
         InputTrace.log("drag down \(button.rawValue) at \(InputTrace.point(p))")
         let down = CGEvent(mouseEventSource: source, mouseType: downType, mouseCursorPosition: p, mouseButton: cgButton)
         stampStill(down)
-        send(down)
+        send(down, flags: flags)
     }
 
-    static func mouseUp(_ button: MouseButton = .left) {
+    static func mouseUp(_ button: MouseButton = .left, flags: CGEventFlags = []) {
         let (_, upType, cgButton) = mapping(button)
         let p = location
         InputTrace.log("drag up \(button.rawValue) at \(InputTrace.point(p))")
         let up = CGEvent(mouseEventSource: source, mouseType: upType, mouseCursorPosition: p, mouseButton: cgButton)
         stampStill(up)
-        send(up)
+        send(up, flags: flags)
     }
 
     /// A click or a still drag must not replay the last move delta.

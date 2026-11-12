@@ -28,6 +28,9 @@ public struct GridBindings: Codable, Sendable, Equatable {
     public var rightClick: [String]
     public var middleClick: [String]
     public var moveOnly: [String]
+    public var toggleDrag: [String]
+    public var toggleRightDrag: [String]
+    public var toggleMiddleDrag: [String]
     public var toFree: [String]
     public var cancel: [String]
     public var nextScreen: [String]
@@ -38,6 +41,9 @@ public struct GridBindings: Codable, Sendable, Equatable {
         case rightClick = "right_click"
         case middleClick = "middle_click"
         case moveOnly = "move_only"
+        case toggleDrag = "toggle_drag"
+        case toggleRightDrag = "toggle_right_drag"
+        case toggleMiddleDrag = "toggle_middle_drag"
         case toFree = "to_free"
         case cancel
         case nextScreen = "next_screen"
@@ -45,10 +51,13 @@ public struct GridBindings: Codable, Sendable, Equatable {
 
     public init(
         back: [String] = ["delete", "backspace"],
-        leftClick: [String] = ["space", "return"],
-        rightClick: [String] = ["a"],
+        leftClick: [String] = ["f", "space", "return"],
+        rightClick: [String] = ["d"],
         middleClick: [String] = ["s"],
-        moveOnly: [String] = ["d"],
+        moveOnly: [String] = [],
+        toggleDrag: [String] = ["r"],
+        toggleRightDrag: [String] = ["e"],
+        toggleMiddleDrag: [String] = ["w"],
         toFree: [String] = ["option_left"],
         cancel: [String] = ["escape"],
         nextScreen: [String] = ["tab"]
@@ -58,9 +67,43 @@ public struct GridBindings: Codable, Sendable, Equatable {
         self.rightClick = rightClick
         self.middleClick = middleClick
         self.moveOnly = moveOnly
+        self.toggleDrag = toggleDrag
+        self.toggleRightDrag = toggleRightDrag
+        self.toggleMiddleDrag = toggleMiddleDrag
         self.toFree = toFree
         self.cancel = cancel
         self.nextScreen = nextScreen
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fresh = GridBindings()
+        back = try c.decodeIfPresent([String].self, forKey: .back) ?? fresh.back
+        leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? fresh.leftClick
+        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? fresh.rightClick
+        middleClick = try c.decodeIfPresent([String].self, forKey: .middleClick) ?? fresh.middleClick
+        moveOnly = try c.decodeIfPresent([String].self, forKey: .moveOnly) ?? fresh.moveOnly
+        toggleDrag = try c.decodeIfPresent([String].self, forKey: .toggleDrag) ?? fresh.toggleDrag
+        toggleRightDrag = try c.decodeIfPresent([String].self, forKey: .toggleRightDrag) ?? fresh.toggleRightDrag
+        toggleMiddleDrag = try c.decodeIfPresent([String].self, forKey: .toggleMiddleDrag) ?? fresh.toggleMiddleDrag
+        toFree = try c.decodeIfPresent([String].self, forKey: .toFree) ?? fresh.toFree
+        cancel = try c.decodeIfPresent([String].self, forKey: .cancel) ?? fresh.cancel
+        nextScreen = try c.decodeIfPresent([String].self, forKey: .nextScreen) ?? fresh.nextScreen
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(back, forKey: .back)
+        try c.encode(leftClick, forKey: .leftClick)
+        try c.encode(rightClick, forKey: .rightClick)
+        try c.encode(middleClick, forKey: .middleClick)
+        try c.encode(moveOnly, forKey: .moveOnly)
+        try c.encode(toggleDrag, forKey: .toggleDrag)
+        try c.encode(toggleRightDrag, forKey: .toggleRightDrag)
+        try c.encode(toggleMiddleDrag, forKey: .toggleMiddleDrag)
+        try c.encode(toFree, forKey: .toFree)
+        try c.encode(cancel, forKey: .cancel)
+        try c.encode(nextScreen, forKey: .nextScreen)
     }
 }
 
@@ -76,6 +119,8 @@ public struct FreeBindings: Codable, Sendable, Equatable {
     public var scrollLeft: [String]
     public var scrollRight: [String]
     public var toggleDrag: [String]
+    public var toggleRightDrag: [String]
+    public var toggleMiddleDrag: [String]
     public var leftClick: [String]
     public var rightClick: [String]
     public var middleClick: [String]
@@ -92,6 +137,8 @@ public struct FreeBindings: Codable, Sendable, Equatable {
         case scrollLeft = "scroll_left"
         case scrollRight = "scroll_right"
         case toggleDrag = "toggle_drag"
+        case toggleRightDrag = "toggle_right_drag"
+        case toggleMiddleDrag = "toggle_middle_drag"
         case leftClick = "left_click"
         case rightClick = "right_click"
         case middleClick = "middle_click"
@@ -109,9 +156,11 @@ public struct FreeBindings: Codable, Sendable, Equatable {
         scrollDown: [String] = [","],
         scrollLeft: [String] = ["m"],
         scrollRight: [String] = ["/"],
-        toggleDrag: [String] = ["q"],
-        leftClick: [String] = ["space", "return"],
-        rightClick: [String] = ["a"],
+        toggleDrag: [String] = ["r"],
+        toggleRightDrag: [String] = ["e"],
+        toggleMiddleDrag: [String] = ["w"],
+        leftClick: [String] = ["f", "space", "return"],
+        rightClick: [String] = ["d"],
         middleClick: [String] = ["s"],
         cancel: [String] = ["escape"]
     ) {
@@ -126,10 +175,55 @@ public struct FreeBindings: Codable, Sendable, Equatable {
         self.scrollLeft = scrollLeft
         self.scrollRight = scrollRight
         self.toggleDrag = toggleDrag
+        self.toggleRightDrag = toggleRightDrag
+        self.toggleMiddleDrag = toggleMiddleDrag
         self.leftClick = leftClick
         self.rightClick = rightClick
         self.middleClick = middleClick
         self.cancel = cancel
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fresh = FreeBindings()
+        moveLeft = try c.decodeIfPresent([String].self, forKey: .moveLeft) ?? fresh.moveLeft
+        moveDown = try c.decodeIfPresent([String].self, forKey: .moveDown) ?? fresh.moveDown
+        moveUp = try c.decodeIfPresent([String].self, forKey: .moveUp) ?? fresh.moveUp
+        moveRight = try c.decodeIfPresent([String].self, forKey: .moveRight) ?? fresh.moveRight
+        faster = try c.decodeIfPresent([String].self, forKey: .faster) ?? fresh.faster
+        slower = try c.decodeIfPresent([String].self, forKey: .slower) ?? fresh.slower
+        scrollUp = try c.decodeIfPresent([String].self, forKey: .scrollUp) ?? fresh.scrollUp
+        scrollDown = try c.decodeIfPresent([String].self, forKey: .scrollDown) ?? fresh.scrollDown
+        scrollLeft = try c.decodeIfPresent([String].self, forKey: .scrollLeft) ?? fresh.scrollLeft
+        scrollRight = try c.decodeIfPresent([String].self, forKey: .scrollRight) ?? fresh.scrollRight
+        toggleDrag = try c.decodeIfPresent([String].self, forKey: .toggleDrag) ?? fresh.toggleDrag
+        toggleRightDrag = try c.decodeIfPresent([String].self, forKey: .toggleRightDrag) ?? fresh.toggleRightDrag
+        toggleMiddleDrag = try c.decodeIfPresent([String].self, forKey: .toggleMiddleDrag) ?? fresh.toggleMiddleDrag
+        leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? fresh.leftClick
+        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? fresh.rightClick
+        middleClick = try c.decodeIfPresent([String].self, forKey: .middleClick) ?? fresh.middleClick
+        cancel = try c.decodeIfPresent([String].self, forKey: .cancel) ?? fresh.cancel
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(moveLeft, forKey: .moveLeft)
+        try c.encode(moveDown, forKey: .moveDown)
+        try c.encode(moveUp, forKey: .moveUp)
+        try c.encode(moveRight, forKey: .moveRight)
+        try c.encode(faster, forKey: .faster)
+        try c.encode(slower, forKey: .slower)
+        try c.encode(scrollUp, forKey: .scrollUp)
+        try c.encode(scrollDown, forKey: .scrollDown)
+        try c.encode(scrollLeft, forKey: .scrollLeft)
+        try c.encode(scrollRight, forKey: .scrollRight)
+        try c.encode(toggleDrag, forKey: .toggleDrag)
+        try c.encode(toggleRightDrag, forKey: .toggleRightDrag)
+        try c.encode(toggleMiddleDrag, forKey: .toggleMiddleDrag)
+        try c.encode(leftClick, forKey: .leftClick)
+        try c.encode(rightClick, forKey: .rightClick)
+        try c.encode(middleClick, forKey: .middleClick)
+        try c.encode(cancel, forKey: .cancel)
     }
 
     public func move(_ direction: MoveDirection) -> [String] {
@@ -169,7 +263,7 @@ public struct HintBindings: Codable, Sendable, Equatable {
 
     public init(
         leftClick: [String] = ["space", "return"],
-        rightClick: [String] = ["shift+space", "shift+return"],
+        rightClick: [String] = ["control+space", "control+return"],
         toFree: [String] = ["option_left"],
         cancel: [String] = ["escape"],
         back: [String] = ["delete", "backspace"]
@@ -184,7 +278,7 @@ public struct HintBindings: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         leftClick = try c.decodeIfPresent([String].self, forKey: .leftClick) ?? ["space", "return"]
-        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? ["shift+space", "shift+return"]
+        rightClick = try c.decodeIfPresent([String].self, forKey: .rightClick) ?? ["control+space", "control+return"]
         toFree = try c.decodeIfPresent([String].self, forKey: .toFree) ?? ["option_left"]
         cancel = try c.decodeIfPresent([String].self, forKey: .cancel) ?? ["escape"]
         back = try c.decodeIfPresent([String].self, forKey: .back) ?? ["delete", "backspace"]

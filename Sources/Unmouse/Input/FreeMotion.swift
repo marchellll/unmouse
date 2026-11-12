@@ -107,7 +107,10 @@ final class FreeMotion {
     }
 
     /// Tick free-mode motion. Does not touch tutorial or overlays.
-    func tick(dt: TimeInterval, free: FreeConfig, bindings: BindingTable.Free, dragging: Bool) -> MotionResult {
+    func tick(
+        dt: TimeInterval, free: FreeConfig, bindings: BindingTable.Free,
+        drag: MouseButton? = nil, dragFlags: CGEventFlags = []
+    ) -> MotionResult {
         var result = MotionResult()
         if speedLatch.releasePending {
             speedLatch.sync(
@@ -151,7 +154,7 @@ final class FreeMotion {
         if up { dy -= step }
         if down { dy += step }
         if dx != 0 || dy != 0 {
-            PointerController.moveBy(dx: dx, dy: dy, dragging: dragging)
+            PointerController.moveBy(dx: dx, dy: dy, drag: drag, flags: dragFlags)
         }
 
         let scrollUp = bindingHeld(bindings.scrollRaw[.up] ?? [], chordDown: chordDown)
