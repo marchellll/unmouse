@@ -9,10 +9,10 @@ level = "none"         # none | error | warn | info | debug
 
 
 [grid]
-rows = 5
-cols = 4
-sub_rows = 3       # second grid, and the third when depth is 3
-sub_cols = 3
+rows = 10
+cols = 10
+sub_rows = 7       # second grid, and the third when depth is 3
+sub_cols = 7
 sub_font_size = 16
 sub_label = "#FFFFFF"
 sub_glow = "#FFFFFF"
@@ -36,9 +36,9 @@ scroll_reverse_x = true  # flip left/right
 scroll_reverse_y = false  # flip up/down
 exit_on_action = false  # chord, click, or other key leaves free mode
 halo_attention = "pulse"   # none | pulse | ping | breathe
-halo_attention_period = 1.1  # seconds
-halo_attention_scale = 2.4
-halo_offset = [15.0, 10.0]  # cartesian points from the pointer; +x right, +y up
+halo_attention_period = 1.4  # seconds
+halo_attention_scale = 3.6
+halo_offset = [25.0, -25.0]  # cartesian points from the pointer; +x right, +y up
 
 [colors]
 background = "#00000000"
