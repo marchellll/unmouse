@@ -801,9 +801,8 @@ struct AccessibilityHintSource: HintSource {
     }
 
     nonisolated private static func dedupeKey(role: String, title: String, frame: CGRect) -> String {
-        let qx = Int(frame.origin.x / 4) * 4
-        let qy = Int(frame.origin.y / 4) * 4
-        return "\(role)|\(title)|\(qx)|\(qy)|\(Int(frame.width))|\(Int(frame.height))"
+        let (qx, qy, w, h) = HintCoder.quantizedFrame(frame)
+        return "\(role)|\(title)|\(qx)|\(qy)|\(w)|\(h)"
     }
 
     nonisolated private static func frame(of el: AXUIElement, primaryHeight: CGFloat) -> CGRect? {

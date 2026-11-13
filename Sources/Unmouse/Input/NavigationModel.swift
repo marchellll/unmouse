@@ -1072,7 +1072,18 @@ final class NavigationModel {
         scanned: Bool = true
     ) {
         guard mode == .hint, generation == hintLoadGeneration else { return }
-        let coded = HintCoder.assignCodes(targets: targets)
+        var pinnedByID: [String: String] = [:]
+        var pinnedByGeometry: [String: String] = [:]
+        for t in hintState.targets where t.showsLabel && !t.code.isEmpty {
+            if pinnedByID[t.id] == nil { pinnedByID[t.id] = t.code }
+            let geo = t.geometryPinKey
+            if pinnedByGeometry[geo] == nil { pinnedByGeometry[geo] = t.code }
+        }
+        let coded = HintCoder.assignCodes(
+            targets: targets,
+            pinnedByID: pinnedByID,
+            pinnedByGeometry: pinnedByGeometry
+        )
         let layout = hintState.paletteLayout
         let cmdHeld = hintState.commandHeld
         hintState.replaceTargets(coded, scanned: scanned)

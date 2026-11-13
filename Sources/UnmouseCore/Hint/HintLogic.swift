@@ -47,6 +47,11 @@ public struct HintTarget: Equatable, Sendable, Identifiable {
         self.isCancel = isCancel
         self.subrole = subrole
     }
+
+    /// Role + quantized frame for pin lookup across scan passes. Title omitted so AX title drift does not break pins.
+    public var geometryPinKey: String {
+        HintCoder.geometryPinKey(role: role, frame: frame)
+    }
 }
 
 public struct HintBubble: Equatable, Sendable, Identifiable {
@@ -82,11 +87,34 @@ public enum HintCoder {
     /// Fixed label alphabet. Digraphs cover hundreds of controls; no config knob.
     public static let alphabet = "abcdefghijklmnopqrstuvwxyz"
 
+    /// Same 4pt grid as accessibility scan dedupe. Keeps pin keys and scan ids aligned.
+    public static let frameQuant = 4
+
+    /// Role + quantized origin/size. No title — used when AX id drifts but the control did not move.
+    public static func geometryPinKey(role: String, frame: CGRect) -> String {
+        let (qx, qy, w, h) = quantizedFrame(frame)
+        return "\(role)|\(qx)|\(qy)|\(w)|\(h)"
+    }
+
+    /// Quantize frame for scan ids and pin keys.
+    public static func quantizedFrame(_ frame: CGRect) -> (qx: Int, qy: Int, w: Int, h: Int) {
+        let q = frameQuant
+        return (
+            Int(frame.origin.x / CGFloat(q)) * q,
+            Int(frame.origin.y / CGFloat(q)) * q,
+            Int(frame.width),
+            Int(frame.height)
+        )
+    }
+
     /// Assign short codes from the fixed alphabet. Rank, then slice the title.
+    /// `pinnedByID` / `pinnedByGeometry` keep codes stable across scan milestones.
     public static func assignCodes(
         targets: [HintTarget],
         chars: String = alphabet,
-        priorityWords: Set<String> = PriorityWords.load()
+        priorityWords: Set<String> = PriorityWords.load(),
+        pinnedByID: [String: String] = [:],
+        pinnedByGeometry: [String: String] = [:]
     ) -> [HintTarget] {
         let alphabet = Array(chars.lowercased())
         guard !alphabet.isEmpty else { return targets }
@@ -106,9 +134,20 @@ public enum HintCoder {
         }
 
         var used: Set<String> = []
+        for code in pinnedByID.values where !code.isEmpty { used.insert(code) }
+        for code in pinnedByGeometry.values where !code.isEmpty { used.insert(code) }
+
         var codedByID: [String: String] = [:]
 
         for (_, target) in labeled {
+            if let code = pinnedByID[target.id], !code.isEmpty {
+                codedByID[target.id] = code
+                continue
+            }
+            if let code = pinnedByGeometry[target.geometryPinKey], !code.isEmpty {
+                codedByID[target.id] = code
+                continue
+            }
             if let code = takeCode(for: target, alphabet: alphabet, used: &used, priority: priorityWords) {
                 codedByID[target.id] = code
             }

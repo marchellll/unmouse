@@ -81,6 +81,77 @@ struct HintTests {
         #expect((coded.first?.code.count ?? 99) <= 2)
     }
 
+    @Test func pinnedCodesStayOnSameIdsAcrossPasses() {
+        let first = [
+            HintTarget(id: "ok", title: "OK", frame: CGRect(x: 0, y: 0, width: 40, height: 20), role: "AXButton"),
+            HintTarget(id: "cancel", title: "Cancel", frame: CGRect(x: 50, y: 0, width: 40, height: 20), role: "AXButton"),
+        ]
+        let pass1 = HintCoder.assignCodes(targets: first, priorityWords: [])
+        let pinned = Dictionary(uniqueKeysWithValues: pass1.map { ($0.id, $0.code) })
+        let second = first + [
+            HintTarget(id: "save", title: "Save", frame: CGRect(x: 0, y: 40, width: 40, height: 20), role: "AXButton"),
+            HintTarget(id: "delete", title: "Delete", frame: CGRect(x: 50, y: 40, width: 40, height: 20), role: "AXButton"),
+        ]
+        let pass2 = HintCoder.assignCodes(targets: second, priorityWords: [], pinnedByID: pinned)
+        let byID = Dictionary(uniqueKeysWithValues: pass2.map { ($0.id, $0.code) })
+        #expect(byID["ok"] == pinned["ok"])
+        #expect(byID["cancel"] == pinned["cancel"])
+        #expect(byID["save"] != pinned["ok"])
+        #expect(byID["save"] != pinned["cancel"])
+        #expect(Set(pass2.map(\.code)).count == pass2.count)
+    }
+
+    @Test func geometryPinKeepsCodeWhenIdDrifts() {
+        let frame = CGRect(x: 12, y: 40, width: 80, height: 24)
+        let pass1 = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "old|Save|12|40|80|24", title: "Save", frame: frame, role: "AXButton"),
+            ],
+            priorityWords: []
+        )
+        let code = pass1[0].code
+        #expect(!code.isEmpty)
+        let geo = HintCoder.geometryPinKey(role: "AXButton", frame: frame)
+        let pass2 = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "new|Save As|12|40|80|24", title: "Save As", frame: frame, role: "AXButton"),
+                HintTarget(id: "other", title: "Open", frame: CGRect(x: 200, y: 40, width: 40, height: 20), role: "AXButton"),
+            ],
+            priorityWords: [],
+            pinnedByGeometry: [geo: code]
+        )
+        let byID = Dictionary(uniqueKeysWithValues: pass2.map { ($0.id, $0.code) })
+        #expect(byID["new|Save As|12|40|80|24"] == code)
+        #expect(byID["other"] != code)
+    }
+
+    @Test func pinnedCodeIsNotStolenByNewTarget() {
+        let frame = CGRect(x: 0, y: 0, width: 40, height: 20)
+        let pinnedByID = ["old": "a"]
+        let coded = HintCoder.assignCodes(
+            targets: [
+                HintTarget(id: "old", title: "Add", frame: frame, role: "AXButton"),
+                HintTarget(id: "new", title: "Alpha", frame: CGRect(x: 100, y: 0, width: 40, height: 20), role: "AXButton"),
+            ],
+            chars: "abcdefghijklmnopqrstuvwxyz",
+            priorityWords: [],
+            pinnedByID: pinnedByID
+        )
+        let byID = Dictionary(uniqueKeysWithValues: coded.map { ($0.id, $0.code) })
+        #expect(byID["old"] == "a")
+        #expect(byID["new"] != "a")
+        #expect(!(byID["new"] ?? "").isEmpty)
+    }
+
+    @Test func geometryPinKeyBucketsSubFourPointJitter() {
+        let a = HintTarget(id: "a", title: "X", frame: CGRect(x: 10, y: 20, width: 40, height: 20), role: "AXButton")
+        let b = HintTarget(id: "b", title: "X", frame: CGRect(x: 11, y: 21, width: 40, height: 20), role: "AXButton")
+        let c = HintTarget(id: "c", title: "X", frame: CGRect(x: 14, y: 20, width: 40, height: 20), role: "AXButton")
+        #expect(a.geometryPinKey == b.geometryPinKey)
+        #expect(a.geometryPinKey != c.geometryPinKey)
+        #expect(HintCoder.geometryPinKey(role: "AXButton", frame: a.frame) == a.geometryPinKey)
+    }
+
     @Test func threeCharOnlyAfterDigraphsExhausted() {
         // 2-letter alphabet → 2 + 4 digraphs = 6 codes before triples.
         let targets = (0..<8).map {
