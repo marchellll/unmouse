@@ -320,6 +320,21 @@ struct HintTests {
         #expect(words == Set(["ok", "save"]))
     }
 
+    @Test func replacingTargetsKeepsTheQuery() {
+        var state = HintState(targets: [
+            HintTarget(id: "wa", title: "WhatsApp", frame: .zero, role: "AXApplication", action: .app(path: "/Applications/WhatsApp.app"), showsLabel: false),
+        ], scanned: true)
+        _ = state.typeCharacter("w")
+        #expect(state.selectedTarget?.id == "wa")
+        state.replaceTargets([
+            HintTarget(id: "ok", title: "OK", frame: CGRect(x: 0, y: 0, width: 40, height: 20), role: "AXButton"),
+            HintTarget(id: "wa", title: "WhatsApp", frame: .zero, role: "AXApplication", action: .app(path: "/Applications/WhatsApp.app"), showsLabel: false),
+        ])
+        #expect(state.typed == "w")
+        #expect(state.scanned)
+        #expect(state.selectedTarget?.id == "wa")
+    }
+
     @Test func emptyScanIsDistinctFromStillScanning() {
         let scanning = HintState()
         #expect(!scanning.scanned)

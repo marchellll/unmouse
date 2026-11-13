@@ -119,7 +119,7 @@ final class NavigationModel {
 
     /// Screen that holds the focused window. Falls back to the cursor screen.
     func screenForFocusedWindow() -> NSScreen {
-        if let frame = Self.focusedWindowAppKitFrame() {
+        if let frame = Self.focusedWindowAppKitFrame(primaryHeight: NSScreen.screens.first?.frame.height ?? 0) {
             let mid = CGPoint(x: frame.midX, y: frame.midY)
             if let screen = NSScreen.screens.first(where: { NSMouseInRect(mid, $0.frame, false) }) {
                 return screen
@@ -141,7 +141,8 @@ final class NavigationModel {
         guard mode == .idle, !dragging else { return }
         guard AXIsProcessTrusted() else { return }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
-        guard let frame = Self.focusedWindowAppKitFrame(), frame.width >= 8, frame.height >= 8 else { return }
+        guard let frame = Self.focusedWindowAppKitFrame(primaryHeight: NSScreen.screens.first?.frame.height ?? 0),
+              frame.width >= 8, frame.height >= 8 else { return }
         let primaryH = NSScreen.screens.first?.frame.height ?? 0
         let cursor = CoordinateSpace.cgEventToAppKit(PointerController.location, primaryHeight: primaryH)
         if frame.contains(cursor) { return }
@@ -160,7 +161,8 @@ final class NavigationModel {
     }
 
     /// Focused window frame in AppKit screen coords (bottom-left origin).
-    private static func focusedWindowAppKitFrame() -> CGRect? {
+    /// Each element has its own 0.15s timeout. The timeout is not inherited, and the default waits on the other app.
+    nonisolated private static func focusedWindowAppKitFrame(primaryHeight: CGFloat) -> CGRect? {
         guard AXIsProcessTrusted() else { return nil }
         let system = AXUIElementCreateSystemWide()
         AXUIElementSetMessagingTimeout(system, 0.15)
@@ -169,11 +171,13 @@ final class NavigationModel {
               let focusedApp
         else { return nil }
         let appEl = unsafeDowncast(focusedApp as AnyObject, to: AXUIElement.self)
+        AXUIElementSetMessagingTimeout(appEl, 0.15)
         var windowRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &windowRef) == .success,
               let windowRef
         else { return nil }
         let win = unsafeDowncast(windowRef as AnyObject, to: AXUIElement.self)
+        AXUIElementSetMessagingTimeout(win, 0.15)
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(win, kAXPositionAttribute as CFString, &posRef) == .success,
@@ -185,8 +189,7 @@ final class NavigationModel {
         guard AXValueGetValue(posRef as! AXValue, .cgPoint, &pos),
               AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
         else { return nil }
-        let primaryH = NSScreen.screens.first?.frame.height ?? 0
-        let appKitOrigin = CoordinateSpace.cgEventToAppKit(pos, primaryHeight: primaryH)
+        let appKitOrigin = CoordinateSpace.cgEventToAppKit(pos, primaryHeight: primaryHeight)
         return CGRect(x: appKitOrigin.x, y: appKitOrigin.y - size.height, width: size.width, height: size.height)
     }
 
@@ -247,15 +250,11 @@ final class NavigationModel {
         gridState = nil
         hintState = HintState()
         hintBubbles = []
-        let t0 = DispatchTime.now().uptimeNanoseconds
-        hintScreenFrame = screenForFocusedWindow().frame
-        // Prefer nempel below / beside the focused window; else freestanding center-below.
-        if let win = Self.focusedWindowAppKitFrame() {
-            hintState.paletteLayout = HintPalettePlacement.resolve(window: win, screen: hintScreenFrame)
-            InputTrace.log("hint palette layout \(hintState.paletteLayout) win=\(Int(win.width))x\(Int(win.height))")
-        }
+        // Cursor screen first. The focused-window query waits on that app's main thread,
+        // so it must not run here or a busy window freezes the palette.
+        hintScreenFrame = screenForCursor().frame
         InputTrace.log(
-            "hint screen frame \(Int(hintScreenFrame.width))x\(Int(hintScreenFrame.height))@\(Int(hintScreenFrame.minX)),\(Int(hintScreenFrame.minY)) axMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+            "hint screen frame \(Int(hintScreenFrame.width))x\(Int(hintScreenFrame.height))@\(Int(hintScreenFrame.minX)),\(Int(hintScreenFrame.minY))"
         )
         mode = .hint
         bumpModeActivity()
@@ -266,7 +265,8 @@ final class NavigationModel {
         app.overlayController?.updateCoach()
         onTutorial?(.enteredHint)
         syncHintCommandHeld()
-        Task { await loadHints(generation: generation) }
+        let primaryH = NSScreen.screens.first?.frame.height ?? 0
+        Task { await loadHints(generation: generation, primaryHeight: primaryH) }
     }
 
     func exitToIdle(keepDrag: Bool = false) {
@@ -291,6 +291,9 @@ final class NavigationModel {
         eventTap.onKey = { [weak self] kind, flags, down, alone, nanos in
             guard let self else { return false }
             return self.handleKey(kind: kind, flags: flags, down: down, alone: alone, source: .tap, eventNanos: nanos)
+        }
+        eventTap.onFlags = { [weak self] flags in
+            self?.lastFlags = flags
         }
         karabiner.onKey = { [weak self] kind, down, nanos in
             guard let self else { return }
@@ -913,33 +916,54 @@ final class NavigationModel {
         enterFree(fromGrid: false)
     }
 
-    private func loadHints(generation: UInt64) async {
+    private func loadHints(generation: UInt64, primaryHeight: CGFloat) async {
         InputTrace.log("hint load start gen=\(generation)")
         let t0 = DispatchTime.now().uptimeNanoseconds
         let source = AccessibilityHintSource()
-        let targets = await source.collect()
+        let windowTask = Task.detached {
+            Self.focusedWindowAppKitFrame(primaryHeight: primaryHeight)
+        }
+        let launches = await source.launchTargets()
+        guard mode == .hint, generation == hintLoadGeneration else { return }
+        if !launches.isEmpty {
+            publishHints(launches, generation: generation, since: t0, phase: "launches")
+        }
+        if let win = await windowTask.value, mode == .hint, generation == hintLoadGeneration {
+            hintState.paletteLayout = HintPalettePlacement.resolve(window: win, screen: hintScreenFrame)
+            InputTrace.log("hint palette layout \(hintState.paletteLayout) win=\(Int(win.width))x\(Int(win.height))")
+            app.overlayController?.refreshHints()
+        }
+        let controls = await source.collect()
         let scanMs = (DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
         guard mode == .hint, generation == hintLoadGeneration else {
-            InputTrace.log("hint load stale gen=\(generation) current=\(hintLoadGeneration) mode=\(mode.rawValue) scanMs=\(scanMs) n=\(targets.count)")
+            InputTrace.log("hint load stale gen=\(generation) current=\(hintLoadGeneration) mode=\(mode.rawValue) scanMs=\(scanMs) n=\(controls.count)")
             return
         }
-        InputTrace.log("hint load scan done n=\(targets.count) scanMs=\(scanMs)")
-        let t1 = DispatchTime.now().uptimeNanoseconds
+        InputTrace.log("hint load scan done n=\(controls.count) launches=\(launches.count) scanMs=\(scanMs)")
+        var seen = Set<String>()
+        var merged: [HintTarget] = []
+        for target in controls where seen.insert(target.id).inserted {
+            merged.append(target)
+        }
+        for target in launches where seen.insert(target.id).inserted {
+            merged.append(target)
+        }
+        publishHints(merged, generation: generation, since: t0, phase: "ready")
+    }
+
+    /// Codes the rows and keeps the query already typed. Safe to call again when the control walk finishes.
+    private func publishHints(_ targets: [HintTarget], generation: UInt64, since t0: UInt64, phase: String) {
+        guard mode == .hint, generation == hintLoadGeneration else { return }
         let coded = HintCoder.assignCodes(targets: targets)
-        let labeled = coded.filter(\.showsLabel).count
-        let codeMs = (DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000
         let layout = hintState.paletteLayout
         let cmdHeld = hintState.commandHeld
-        hintState = HintState(targets: coded, scanned: true)
+        hintState.replaceTargets(coded)
         hintState.paletteLayout = layout
         hintState.setCommandHeld(cmdHeld)
-        let screen = hintScreenFrame.isEmpty ? screenForFocusedWindow().frame : hintScreenFrame
-        hintScreenFrame = screen
-        let t2 = DispatchTime.now().uptimeNanoseconds
         rebuildHintBubbles()
-        let layoutMs = (DispatchTime.now().uptimeNanoseconds - t2) / 1_000_000
+        let labeled = coded.filter(\.showsLabel).count
         InputTrace.log(
-            "hint load ready labeled=\(labeled) bubbles=\(hintBubbles.count) codeMs=\(codeMs) layoutMs=\(layoutMs) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+            "hint load \(phase) labeled=\(labeled) bubbles=\(hintBubbles.count) n=\(coded.count) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
         app.overlayController?.showHints()
         app.overlayController?.refreshHints()

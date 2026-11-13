@@ -502,6 +502,23 @@ public struct HintState: Equatable, Sendable {
         applyCmdNumbers()
     }
 
+    /// Swap in a new scan without dropping what the user has already typed.
+    public mutating func replaceTargets(_ targets: [HintTarget]) {
+        let query = typed
+        let selected = selectedIndex
+        self.targets = targets
+        scanned = true
+        matches = Self.rank(targets: targets, query: query)
+        if query.isEmpty || matches.isEmpty {
+            selectedIndex = -1
+        } else if matches.indices.contains(selected) {
+            selectedIndex = selected
+        } else {
+            selectedIndex = 0
+        }
+        applyCmdNumbers()
+    }
+
     /// ⌘T: leave attach if needed, then cycle center-below → center → center-upper.
     public mutating func cyclePalette() {
         switch paletteLayout {

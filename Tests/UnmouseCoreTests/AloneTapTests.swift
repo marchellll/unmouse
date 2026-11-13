@@ -26,6 +26,14 @@ struct AloneTapTests {
         #expect(up == .up(alone: false))
     }
 
+    @Test func otherSideBitStillCountsAsThisKeyGoingDown() {
+        // Karabiner can set only the right-shift bit on the left-shift flagsChanged.
+        #expect(ModifierSide.isDown(ownSide: false, otherSide: true, generic: true, trackedDown: false))
+        #expect(!ModifierSide.isDown(ownSide: false, otherSide: true, generic: true, trackedDown: true))
+        #expect(ModifierSide.isDown(ownSide: true, otherSide: false, generic: true, trackedDown: false))
+        #expect(!ModifierSide.isDown(ownSide: false, otherSide: false, generic: false, trackedDown: false))
+    }
+
     @Test func setMaxTapMillisecondsUpdatesThreshold() {
         var tap = AloneTapTracker(maxTapMilliseconds: 500)
         tap.setMaxTapMilliseconds(100)

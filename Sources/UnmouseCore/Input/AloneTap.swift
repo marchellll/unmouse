@@ -84,3 +84,13 @@ public struct AloneTapTracker: Sendable, Equatable {
         }
     }
 }
+
+/// Whether one side of a modifier is down, from a flagsChanged event.
+/// Karabiner sometimes sets only the other side's device bit on this key's event.
+public enum ModifierSide {
+    public static func isDown(ownSide: Bool, otherSide: Bool, generic: Bool, trackedDown: Bool) -> Bool {
+        if ownSide { return true }
+        if otherSide { return !trackedDown }
+        return generic
+    }
+}

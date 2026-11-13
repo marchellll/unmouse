@@ -4,6 +4,27 @@ import CoreGraphics
 import UnmouseCore
 
 struct AccessibilityHintSource: HintSource {
+    /// Installed and running apps. No accessibility calls, so a busy front app cannot delay launching WhatsApp.
+    func launchTargets() async -> [HintTarget] {
+        let snap = await MainActor.run { Self.snapshot() }
+        let t0 = DispatchTime.now().uptimeNanoseconds
+        let targets = await Task.detached(priority: .userInitiated) {
+            var results: [HintTarget] = []
+            var seen = Set<String>()
+            Self.collectApps(
+                runningPaths: snap.apps.compactMap(\.path),
+                into: &results,
+                seen: &seen,
+                deadline: .max
+            )
+            return results
+        }.value
+        InputTrace.log(
+            "hint launches n=\(targets.count) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+        )
+        return targets
+    }
+
     func collect() async -> [HintTarget] {
         // Snapshot AppKit on main — NSWorkspace / NSScreen are not safe in Task.detached.
         let deadline = Self.scanDeadline()
@@ -29,12 +50,6 @@ struct AccessibilityHintSource: HintSource {
                 Self.collectWindows(snap.apps, primaryHeight: snap.primaryHeight, into: &results, seen: &seen, deadline: deadline)
                 InputTrace.log(
                     "hint scan windows +\(results.count - before) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
-                )
-                let beforeApps = results.count
-                let t1 = DispatchTime.now().uptimeNanoseconds
-                Self.collectApps(runningPaths: snap.apps.compactMap(\.path), into: &results, seen: &seen, deadline: deadline)
-                InputTrace.log(
-                    "hint scan apps +\(results.count - beforeApps) ms=\((DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000) total=\(results.count)"
                 )
                 if Self.timedOut(deadline) {
                     InputTrace.log("hint scan timeout n=\(results.count)")
@@ -208,13 +223,6 @@ struct AccessibilityHintSource: HintSource {
         collectWindows(snap.apps, primaryHeight: snap.primaryHeight, into: &results, seen: &seen, deadline: deadline)
         InputTrace.log(
             "hint scan windows +\(results.count - beforeWin) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
-        )
-
-        t0 = DispatchTime.now().uptimeNanoseconds
-        let beforeApps = results.count
-        collectApps(runningPaths: snap.apps.compactMap(\.path), into: &results, seen: &seen, deadline: deadline)
-        InputTrace.log(
-            "hint scan apps +\(results.count - beforeApps) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
 
         let totalMs = (DispatchTime.now().uptimeNanoseconds - tAll) / 1_000_000
@@ -717,6 +725,7 @@ struct AccessibilityHintSource: HintSource {
     }
 
     nonisolated private static func frame(of el: AXUIElement, primaryHeight: CGFloat) -> CGRect? {
+        prime(el)
         var posRef: CFTypeRef?
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &posRef) == .success,
@@ -734,12 +743,14 @@ struct AccessibilityHintSource: HintSource {
     }
 
     nonisolated private static func stringAttr(_ el: AXUIElement, _ attr: CFString) -> String? {
+        prime(el)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, attr, &ref) == .success else { return nil }
         return ref as? String
     }
 
     nonisolated private static func children(of el: AXUIElement) -> [AXUIElement] {
+        prime(el)
         var children: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &children) == .success,
               let arr = children as? [AXUIElement]
@@ -748,12 +759,14 @@ struct AccessibilityHintSource: HintSource {
     }
 
     nonisolated private static func copyElement(_ el: AXUIElement, _ attr: CFString) -> AXUIElement? {
+        prime(el)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, attr, &ref) == .success, let ref else { return nil }
         return unsafeDowncast(ref as AnyObject, to: AXUIElement.self)
     }
 
     nonisolated private static func copyArray(_ el: AXUIElement, _ attr: CFString) -> [AXUIElement]? {
+        prime(el)
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(el, attr, &ref) == .success else { return nil }
         return ref as? [AXUIElement]
@@ -776,12 +789,8 @@ enum HintActivator {
         case .window(let pid, let title):
             raiseWindow(pid: pid, title: title)
         case .app(let path):
-            let url = URL(fileURLWithPath: path)
-            if let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.path == path }) {
-                running.activate()
-            } else {
-                NSWorkspace.shared.open(url)
-            }
+            // Launch Services. `NSRunningApplication.activate()` waits on that app's main thread.
+            NSWorkspace.shared.open(URL(fileURLWithPath: path))
         }
     }
 

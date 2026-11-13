@@ -8,6 +8,8 @@ final class EventTapController {
     private var runLoopSource: CFRunLoopSource?
     /// kind, flags, down, alone, eventNanos
     var onKey: ((KeyKind, CGEventFlags, Bool, Bool, UInt64) -> Bool)?
+    /// Every flagsChanged, including ones the alone-tap ignores. Karabiner keys have no flags of their own.
+    var onFlags: ((CGEventFlags) -> Void)?
     /// Physical mouse button. Never swallowed.
     var onMouseDown: (() -> Void)?
     /// Tap was disabled (timeout or user input). Held keys may have missed a key-up.
@@ -127,8 +129,9 @@ final class EventTapController {
             InputTrace.log("tap flagsChanged code=\(keyCode) not a tracked modifier — pass")
             return false
         }
-        let isDown = Self.modifierPressed(kind, flags: flags)
         let token = kind.configToken
+        let isDown = Self.modifierPressed(kind, flags: flags, trackedDown: alone.modifiersDown.contains(token))
+        onFlags?(flags)
         switch alone.handle(.modifier(token: token, down: isDown, nowNanos: nowNanos)) {
         case .ignored:
             InputTrace.log("tap flags \(token) \(isDown ? "down" : "up") alone=ignored flags=\(InputTrace.flags(flags))")
@@ -154,41 +157,25 @@ final class EventTapController {
         event.timestamp
     }
 
-    private static func modifierPressed(_ kind: KeyKind, flags: CGEventFlags) -> Bool {
+    private static func modifierPressed(_ kind: KeyKind, flags: CGEventFlags, trackedDown: Bool) -> Bool {
         let raw = flags.rawValue
+        func side(_ own: UInt64, _ other: UInt64, _ mask: CGEventFlags) -> Bool {
+            ModifierSide.isDown(
+                ownSide: raw & own != 0,
+                otherSide: raw & other != 0,
+                generic: flags.contains(mask),
+                trackedDown: trackedDown
+            )
+        }
         switch kind {
-        case .commandLeft:
-            if raw & NX_DEVICELCMDKEYMASK != 0 { return true }
-            if raw & NX_DEVICERCMDKEYMASK != 0 { return false }
-            return flags.contains(.maskCommand)
-        case .commandRight:
-            if raw & NX_DEVICERCMDKEYMASK != 0 { return true }
-            if raw & NX_DEVICELCMDKEYMASK != 0 { return false }
-            return flags.contains(.maskCommand)
-        case .optionLeft:
-            if raw & NX_DEVICELALTKEYMASK != 0 { return true }
-            if raw & NX_DEVICERALTKEYMASK != 0 { return false }
-            return flags.contains(.maskAlternate)
-        case .optionRight:
-            if raw & NX_DEVICERALTKEYMASK != 0 { return true }
-            if raw & NX_DEVICELALTKEYMASK != 0 { return false }
-            return flags.contains(.maskAlternate)
-        case .shiftLeft:
-            if raw & NX_DEVICELSHIFTKEYMASK != 0 { return true }
-            if raw & NX_DEVICERSHIFTKEYMASK != 0 { return false }
-            return flags.contains(.maskShift)
-        case .shiftRight:
-            if raw & NX_DEVICERSHIFTKEYMASK != 0 { return true }
-            if raw & NX_DEVICELSHIFTKEYMASK != 0 { return false }
-            return flags.contains(.maskShift)
-        case .controlLeft:
-            if raw & NX_DEVICELCTLKEYMASK != 0 { return true }
-            if raw & NX_DEVICERCTLKEYMASK != 0 { return false }
-            return flags.contains(.maskControl)
-        case .controlRight:
-            if raw & NX_DEVICERCTLKEYMASK != 0 { return true }
-            if raw & NX_DEVICELCTLKEYMASK != 0 { return false }
-            return flags.contains(.maskControl)
+        case .commandLeft: return side(NX_DEVICELCMDKEYMASK, NX_DEVICERCMDKEYMASK, .maskCommand)
+        case .commandRight: return side(NX_DEVICERCMDKEYMASK, NX_DEVICELCMDKEYMASK, .maskCommand)
+        case .optionLeft: return side(NX_DEVICELALTKEYMASK, NX_DEVICERALTKEYMASK, .maskAlternate)
+        case .optionRight: return side(NX_DEVICERALTKEYMASK, NX_DEVICELALTKEYMASK, .maskAlternate)
+        case .shiftLeft: return side(NX_DEVICELSHIFTKEYMASK, NX_DEVICERSHIFTKEYMASK, .maskShift)
+        case .shiftRight: return side(NX_DEVICERSHIFTKEYMASK, NX_DEVICELSHIFTKEYMASK, .maskShift)
+        case .controlLeft: return side(NX_DEVICELCTLKEYMASK, NX_DEVICERCTLKEYMASK, .maskControl)
+        case .controlRight: return side(NX_DEVICERCTLKEYMASK, NX_DEVICELCTLKEYMASK, .maskControl)
         case .command: return flags.contains(.maskCommand)
         case .option: return flags.contains(.maskAlternate)
         case .shift: return flags.contains(.maskShift)
