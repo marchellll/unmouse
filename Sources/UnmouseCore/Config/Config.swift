@@ -308,17 +308,30 @@ public struct FreeConfig: Codable, Sendable, Equatable {
 
 /// Hint settings. `chars` used to live here; labels now use a fixed a–z alphabet.
 public struct HintConfig: Codable, Sendable, Equatable {
+    public static let defaultRefreshMs = [500, 1_000, 1_500]
+    /// Each label-refresh time, and the scan timeout (the last one). Settle is not added.
+    public static let refreshLimit = 0...10_000
+
     /// Pause after enabling accessibility, before reading the focused window.
     /// Electron builds that tree during the pause. `0` reads immediately.
+    /// This pause does not extend `refreshMs`'s last value.
     public var scanSettleMs: Int
+    /// When to put labels on screen if nothing has been typed, in milliseconds.
+    /// Always three ascending times. The last one is the scan timeout.
+    public var refreshMs: [Int]
+
+    /// Scan stops at the last refresh. The accessibility pause is inside this, not added on.
+    public var scanBudgetMs: Int { refreshMs.last ?? Self.defaultRefreshMs[2] }
 
     private enum CodingKeys: String, CodingKey {
         case chars
         case scanSettleMs = "scan_settle_ms"
+        case refreshMs = "refresh_ms"
     }
 
-    public init(scanSettleMs: Int = 200) {
+    public init(scanSettleMs: Int = 200, refreshMs: [Int] = HintConfig.defaultRefreshMs) {
         self.scanSettleMs = Self.clampSettle(scanSettleMs)
+        self.refreshMs = Self.normalizeRefresh(refreshMs)
     }
 
     public init(from decoder: Decoder) throws {
@@ -326,11 +339,46 @@ public struct HintConfig: Codable, Sendable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decodeIfPresent(String.self, forKey: .chars)
         scanSettleMs = Self.clampSettle(try c.decodeIfPresent(Int.self, forKey: .scanSettleMs) ?? 200)
+        if let list = try? c.decode([Int].self, forKey: .refreshMs) {
+            refreshMs = Self.normalizeRefresh(list)
+        } else if let one = try? c.decode(Int.self, forKey: .refreshMs) {
+            refreshMs = Self.normalizeRefresh([one])
+        } else {
+            refreshMs = Self.defaultRefreshMs
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(scanSettleMs, forKey: .scanSettleMs)
+        try c.encode(refreshMs, forKey: .refreshMs)
+    }
+
+    /// Three ascending times. Missing slots keep the defaults. The last one is the timeout.
+    public static func normalizeRefresh(_ raw: [Int]) -> [Int] {
+        var ms = raw.prefix(3).map { min(refreshLimit.upperBound, max(refreshLimit.lowerBound, $0)) }
+        if ms.count < 3 {
+            ms.append(contentsOf: defaultRefreshMs.dropFirst(ms.count))
+        }
+        return ms.sorted()
+    }
+
+    /// The edited slot keeps `value`. Later slots move up and earlier slots move down so the list stays ordered.
+    public func settingRefresh(index: Int, to value: Int) -> [Int] {
+        var ms = refreshMs
+        guard ms.indices.contains(index) else { return ms }
+        ms[index] = min(Self.refreshLimit.upperBound, max(Self.refreshLimit.lowerBound, value))
+        if index + 1 < ms.count {
+            for i in (index + 1)..<ms.count where ms[i] < ms[i - 1] {
+                ms[i] = ms[i - 1]
+            }
+        }
+        if index > 0 {
+            for i in stride(from: index - 1, through: 0, by: -1) where ms[i] > ms[i + 1] {
+                ms[i] = ms[i + 1]
+            }
+        }
+        return ms
     }
 
     private static func clampSettle(_ ms: Int) -> Int {

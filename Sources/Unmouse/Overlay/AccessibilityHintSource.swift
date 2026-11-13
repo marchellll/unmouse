@@ -3,6 +3,38 @@ import ApplicationServices
 import CoreGraphics
 import UnmouseCore
 
+/// Targets found so far. The scan writes; hint mode reads at each refresh time.
+/// nonisolated: the walk runs off the main actor. The lock is the only shared state.
+final class HintScanBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private nonisolated(unsafe) var targets: [HintTarget] = []
+    private nonisolated(unsafe) var done = false
+
+    nonisolated func publish(_ targets: [HintTarget]) {
+        lock.lock()
+        self.targets = targets
+        lock.unlock()
+    }
+
+    nonisolated func snapshot() -> [HintTarget] {
+        lock.lock()
+        defer { lock.unlock() }
+        return targets
+    }
+
+    nonisolated func finish() {
+        lock.lock()
+        done = true
+        lock.unlock()
+    }
+
+    nonisolated var isDone: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return done
+    }
+}
+
 struct AccessibilityHintSource: HintSource {
     /// Wait after `AXManualAccessibility` before walking the focused window.
     var scanSettleMs: Int
@@ -33,19 +65,27 @@ struct AccessibilityHintSource: HintSource {
     }
 
     func collect() async -> [HintTarget] {
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ UInt64(HintConfig.defaultRefreshMs[2]) * 1_000_000
+        return await collect(into: HintScanBuffer(), deadline: deadline)
+    }
+
+    /// `deadline` is absolute. `scanSettleMs` sleeps inside that window and does not move it.
+    func collect(into buffer: HintScanBuffer, deadline: UInt64) async -> [HintTarget] {
+        defer { buffer.finish() }
         // Snapshot AppKit on main — NSWorkspace / NSScreen are not safe in Task.detached.
         let settleMs = min(2_000, max(0, scanSettleMs))
-        let deadline = Self.scanDeadline(extraMs: settleMs)
         let snap = await MainActor.run { Self.snapshot() }
         InputTrace.log("hint scan snap apps=\(snap.apps.count) primaryH=\(Int(snap.primaryHeight))")
         let outside = await Task.detached(priority: .userInitiated) {
-            Self.scanOtherApp(snap: snap, deadline: deadline, settleMs: settleMs)
+            Self.scanOtherApp(snap: snap, deadline: deadline, settleMs: settleMs, buffer: buffer)
         }.value
         switch outside {
         case .targets(let targets):
             return targets
         case .ownApp:
-            let own = await MainActor.run { Self.scanOwnWindow(primaryHeight: snap.primaryHeight, deadline: deadline) }
+            let own = await MainActor.run {
+                Self.scanOwnWindow(primaryHeight: snap.primaryHeight, deadline: deadline, buffer: buffer)
+            }
             return await Task.detached(priority: .userInitiated) {
                 var results = own
                 results.sort {
@@ -55,7 +95,11 @@ struct AccessibilityHintSource: HintSource {
                 var seen = Set(own.map(\.id))
                 let before = results.count
                 let t0 = DispatchTime.now().uptimeNanoseconds
-                Self.collectWindows(snap.apps, primaryHeight: snap.primaryHeight, into: &results, seen: &seen, deadline: deadline)
+                Self.collectWindows(
+                    snap.apps, primaryHeight: snap.primaryHeight,
+                    into: &results, seen: &seen, deadline: deadline, buffer: buffer
+                )
+                buffer.publish(results)
                 InputTrace.log(
                     "hint scan windows +\(results.count - before) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
                 )
@@ -67,15 +111,7 @@ struct AccessibilityHintSource: HintSource {
         }
     }
 
-    /// Stop the walk after this and keep whatever was collected.
-    /// ponytail: checked between elements. One AX call can still spend its 0.25s messaging timeout past the budget.
-    private static let scanBudgetNanos: UInt64 = 1_000_000_000
-
-    private static func scanDeadline(extraMs: Int = 0) -> UInt64 {
-        let extra = UInt64(max(0, extraMs)) * 1_000_000
-        return DispatchTime.now().uptimeNanoseconds &+ scanBudgetNanos &+ extra
-    }
-
+    /// ponytail: checked between elements. One AX call can still spend its 0.25s messaging timeout past the deadline.
     private static func timedOut(_ deadline: UInt64) -> Bool {
         DispatchTime.now().uptimeNanoseconds >= deadline
     }
@@ -135,7 +171,9 @@ struct AccessibilityHintSource: HintSource {
         return Snapshot(primaryHeight: primaryH, apps: apps)
     }
 
-    nonisolated private static func scanOtherApp(snap: Snapshot, deadline: UInt64, settleMs: Int) -> Scan {
+    nonisolated private static func scanOtherApp(
+        snap: Snapshot, deadline: UInt64, settleMs: Int, buffer: HintScanBuffer
+    ) -> Scan {
         let tAll = DispatchTime.now().uptimeNanoseconds
         guard AXIsProcessTrusted() else {
             InputTrace.log("hint scan abort — AX not trusted")
@@ -161,9 +199,13 @@ struct AccessibilityHintSource: HintSource {
         AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         // ponytail: Electron fills the AX tree after those flags. 200ms covers Obsidian's chrome; raise scan_settle_ms if a page is still thin.
-        if settleMs > 0 {
-            InputTrace.log("hint scan settle \(settleMs)ms")
-            Thread.sleep(forTimeInterval: Double(settleMs) / 1000)
+        // The pause is inside the deadline. It does not move it.
+        let now = DispatchTime.now().uptimeNanoseconds
+        let remainMs = now >= deadline ? 0 : Int((deadline - now) / 1_000_000)
+        let pause = min(settleMs, remainMs)
+        if pause > 0 {
+            InputTrace.log("hint scan settle \(pause)ms")
+            Thread.sleep(forTimeInterval: Double(pause) / 1000)
         }
 
         var windowRef: CFTypeRef?
@@ -187,7 +229,8 @@ struct AccessibilityHintSource: HintSource {
         if let menuBar = copyElement(appEl, kAXMenuBarAttribute as CFString) {
             walkMenuBar(
                 menuBar, primaryHeight: snap.primaryHeight,
-                into: &results, seen: &seen, count: &controlCount, limit: 40, deadline: deadline
+                into: &results, seen: &seen, count: &controlCount, limit: 40,
+                deadline: deadline, buffer: buffer
             )
         }
         InputTrace.log(
@@ -206,11 +249,13 @@ struct AccessibilityHintSource: HintSource {
                 textCount: &textCount,
                 limit: 500,
                 textLimit: 300,
-                deadline: deadline
+                deadline: deadline,
+                buffer: buffer
             )
             collectLinks(
                 window, windowFrame: windowFrame, primaryHeight: snap.primaryHeight,
-                into: &results, seen: &seen, count: &controlCount, limit: 500, deadline: deadline
+                into: &results, seen: &seen, count: &controlCount, limit: 500,
+                deadline: deadline, buffer: buffer
             )
             InputTrace.log(
                 "hint scan window controls=\(controlCount) text=\(textCount) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
@@ -221,7 +266,7 @@ struct AccessibilityHintSource: HintSource {
 
         t0 = DispatchTime.now().uptimeNanoseconds
         let beforeMenus = results.count
-        walkMenus(appEl, pid: pid, into: &results, seen: &seen, limit: 400, deadline: deadline)
+        walkMenus(appEl, pid: pid, into: &results, seen: &seen, limit: 400, deadline: deadline, buffer: buffer)
         InputTrace.log(
             "hint scan menus +\(results.count - beforeMenus) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
@@ -231,10 +276,15 @@ struct AccessibilityHintSource: HintSource {
             if $0.frame.maxY != $1.frame.maxY { return $0.frame.maxY > $1.frame.maxY }
             return $0.frame.minX < $1.frame.minX
         }
+        buffer.publish(results)
 
         t0 = DispatchTime.now().uptimeNanoseconds
         let beforeWin = results.count
-        collectWindows(snap.apps, primaryHeight: snap.primaryHeight, into: &results, seen: &seen, deadline: deadline)
+        collectWindows(
+            snap.apps, primaryHeight: snap.primaryHeight,
+            into: &results, seen: &seen, deadline: deadline, buffer: buffer
+        )
+        buffer.publish(results)
         InputTrace.log(
             "hint scan windows +\(results.count - beforeWin) ms=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
@@ -264,6 +314,7 @@ struct AccessibilityHintSource: HintSource {
         limit: Int,
         textLimit: Int,
         deadline: UInt64,
+        buffer: HintScanBuffer,
         depth: Int = 0
     ) {
         guard count < limit, depth < 40, !timedOut(deadline) else { return }
@@ -295,6 +346,7 @@ struct AccessibilityHintSource: HintSource {
                     )
                 )
                 count += 1
+                buffer.publish(results)
             }
         } else if role == (kAXStaticTextRole as String) || role == "AXStaticText",
                   textCount < textLimit,
@@ -316,6 +368,7 @@ struct AccessibilityHintSource: HintSource {
                         )
                     )
                     textCount += 1
+                    buffer.publish(results)
                 }
             }
         }
@@ -330,7 +383,7 @@ struct AccessibilityHintSource: HintSource {
             walkControls(
                 child, windowFrame: windowFrame, primaryHeight: primaryHeight, into: &results, seen: &seen,
                 count: &count, textCount: &textCount, limit: limit, textLimit: textLimit,
-                deadline: deadline, depth: depth + 1
+                deadline: deadline, buffer: buffer, depth: depth + 1
             )
         }
     }
@@ -343,7 +396,8 @@ struct AccessibilityHintSource: HintSource {
         seen: inout Set<String>,
         count: inout Int,
         limit: Int,
-        deadline: UInt64
+        deadline: UInt64,
+        buffer: HintScanBuffer
     ) {
         func visit(_ el: AXUIElement, depth: Int) {
             guard count < limit, depth < 40, !timedOut(deadline) else { return }
@@ -370,6 +424,7 @@ struct AccessibilityHintSource: HintSource {
                                 )
                             )
                             count += 1
+                            buffer.publish(results)
                         }
                     }
                 }
@@ -389,7 +444,8 @@ struct AccessibilityHintSource: HintSource {
         seen: inout Set<String>,
         count: inout Int,
         limit: Int,
-        deadline: UInt64
+        deadline: UInt64,
+        buffer: HintScanBuffer
     ) {
         for child in children(of: el) {
             guard count < limit, !timedOut(deadline) else { return }
@@ -412,6 +468,7 @@ struct AccessibilityHintSource: HintSource {
                     )
                 )
                 count += 1
+                buffer.publish(results)
             }
         }
     }
@@ -422,7 +479,8 @@ struct AccessibilityHintSource: HintSource {
         into results: inout [HintTarget],
         seen: inout Set<String>,
         limit: Int,
-        deadline: UInt64
+        deadline: UInt64,
+        buffer: HintScanBuffer
     ) {
         guard !timedOut(deadline), let menuBar = copyElement(appEl, kAXMenuBarAttribute as CFString) else { return }
         var count = 0
@@ -448,6 +506,7 @@ struct AccessibilityHintSource: HintSource {
                             )
                         )
                         count += 1
+                        buffer.publish(results)
                     }
                     if let submenu = copyElement(child, kAXChildrenAttribute as CFString)
                         ?? children(of: child).first(where: {
@@ -481,7 +540,7 @@ struct AccessibilityHintSource: HintSource {
         walk(menuBar, path: [])
     }
 
-    /// ponytail: backstop under the 1s scan budget. One stuck AX app is still 0.25s.
+    /// ponytail: backstop under the scan budget. One stuck AX app is still 0.25s.
     private static let windowCap = 40
     /// ponytail: installed-app list is for fuzzy launch only; 150 is plenty.
     private static let appCap = 150
@@ -492,7 +551,8 @@ struct AccessibilityHintSource: HintSource {
         primaryHeight: CGFloat,
         into results: inout [HintTarget],
         seen: inout Set<String>,
-        deadline: UInt64
+        deadline: UInt64,
+        buffer: HintScanBuffer
     ) {
         var added = 0
         for app in apps {
@@ -522,6 +582,7 @@ struct AccessibilityHintSource: HintSource {
                         )
                     )
                     added += 1
+                    buffer.publish(results)
                 }
             }
         }
@@ -582,13 +643,15 @@ struct AccessibilityHintSource: HintSource {
     // MARK: Own windows
 
     /// Controls only — windows/apps merge happens off-main after this returns.
-    @MainActor private static func scanOwnWindow(primaryHeight: CGFloat, deadline: UInt64) -> [HintTarget] {
+    @MainActor private static func scanOwnWindow(
+        primaryHeight: CGFloat, deadline: UInt64, buffer: HintScanBuffer
+    ) -> [HintTarget] {
         _ = primaryHeight
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return [] }
         var results: [HintTarget] = []
         var visited = 0
         var seen = Set<String>()
-        walkOwn(window, into: &results, visited: &visited, seen: &seen, limit: 400, deadline: deadline)
+        walkOwn(window, into: &results, visited: &visited, seen: &seen, limit: 400, deadline: deadline, buffer: buffer)
         return results
     }
 
@@ -598,7 +661,8 @@ struct AccessibilityHintSource: HintSource {
         visited: inout Int,
         seen: inout Set<String>,
         limit: Int,
-        deadline: UInt64
+        deadline: UInt64,
+        buffer: HintScanBuffer
     ) {
         guard results.count < limit, visited < 4_000, !timedOut(deadline) else { return }
         visited += 1
@@ -627,12 +691,16 @@ struct AccessibilityHintSource: HintSource {
                             subrole: subrole
                         )
                     )
+                    buffer.publish(results)
                 }
             }
         }
         guard !timedOut(deadline) else { return }
         for child in element.accessibilityChildren() ?? [] {
-            walkOwn(child, into: &results, visited: &visited, seen: &seen, limit: limit, deadline: deadline)
+            walkOwn(
+                child, into: &results, visited: &visited, seen: &seen,
+                limit: limit, deadline: deadline, buffer: buffer
+            )
         }
     }
 

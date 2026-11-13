@@ -138,6 +138,33 @@ struct ConfigTests {
         #expect(HintConfig(scanSettleMs: -5).scanSettleMs == 0)
     }
 
+    @Test func hintRefreshRoundTripAndBudget() throws {
+        var config = AppConfig.default
+        config.hint.refreshMs = [400, 900, 1_800]
+        let text = try ConfigIO.encode(config)
+        #expect(text.contains("refresh_ms"))
+        let decoded = try ConfigIO.decode(from: text)
+        #expect(decoded.hint.refreshMs == [400, 900, 1_800])
+        #expect(decoded.hint.scanBudgetMs == 1_800)
+    }
+
+    @Test func hintRefreshDefaultsAndOrders() throws {
+        var config = AppConfig.default
+        config.hint.refreshMs = [15_000, -20, 1_500]
+        let decoded = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(decoded.hint.refreshMs == [0, 1_500, 10_000])
+        #expect(decoded.hint.scanBudgetMs == 10_000)
+        let text = try ConfigIO.encode(AppConfig.default)
+            .replacingOccurrences(of: "refresh_ms", with: "ignored_refresh")
+        let missing = try ConfigIO.decode(from: text)
+        #expect(missing.hint.refreshMs == HintConfig.defaultRefreshMs)
+        #expect(missing.hint.scanBudgetMs == 1_500)
+        let base = HintConfig()
+        #expect(base.settingRefresh(index: 2, to: 800) == [500, 800, 800])
+        #expect(base.settingRefresh(index: 0, to: 1_200) == [1_200, 1_200, 1_500])
+        #expect(base.settingRefresh(index: 1, to: 700) == [500, 700, 1_500])
+    }
+
     @Test func scrollReverseRoundTrips() throws {
         var config = AppConfig.default
         config.free.scrollReverseX = true

@@ -41,7 +41,8 @@ halo_attention_scale = 3.6
 halo_offset = [25.0, -25.0]  # cartesian points from the pointer; +x right, +y up
 
 [hint]
-scan_settle_ms = 200   # pause (ms) after enabling accessibility, before reading the window. Electron apps such as Obsidian need this. 0 reads immediately.
+scan_settle_ms = 200   # pause (ms) after enabling accessibility, before reading the window. Electron apps such as Obsidian need this. 0 reads immediately. Does not extend the scan timeout.
+refresh_ms = [500, 1000, 1500]  # show labels at each time if nothing has been typed. The last value is the scan timeout.
 
 [colors]
 background = "#00000000"

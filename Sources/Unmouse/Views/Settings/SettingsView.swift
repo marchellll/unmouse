@@ -421,7 +421,28 @@ struct SettingsView: View {
                 unit: "ms",
                 value: hintSettleBinding,
                 range: 0...2_000,
-                hint: "Pause after asking the front app to expose its controls, before the window is read. Electron apps such as Obsidian fill in the tree during this pause. 0 reads immediately."
+                hint: "Pause after asking the front app to expose its controls, before the window is read. Electron apps such as Obsidian fill in the tree during this pause. 0 reads immediately. This pause does not extend the scan timeout."
+            )
+            SteppedIntRow(
+                "First labels",
+                unit: "ms",
+                value: hintRefreshBinding(0),
+                range: HintConfig.refreshLimit,
+                hint: "Show the labels found so far, if you have not typed yet."
+            )
+            SteppedIntRow(
+                "Second labels",
+                unit: "ms",
+                value: hintRefreshBinding(1),
+                range: HintConfig.refreshLimit,
+                hint: "Show a later pass of labels, if you still have not typed."
+            )
+            SteppedIntRow(
+                "Scan timeout",
+                unit: "ms",
+                value: hintRefreshBinding(2),
+                range: HintConfig.refreshLimit,
+                hint: "Last label update, and when the scan stops. The settle pause is not added on top."
             )
         }
         Section("Colors") {
@@ -495,6 +516,16 @@ struct SettingsView: View {
 
     private var hintSettleBinding: Binding<Int> {
         configBind(\.hint.scanSettleMs) { $0.clamped(to: 0...2_000) }
+    }
+
+    private func hintRefreshBinding(_ index: Int) -> Binding<Int> {
+        Binding(
+            get: { model.config.hint.refreshMs[index] },
+            set: {
+                model.config.hint.refreshMs = model.config.hint.settingRefresh(index: index, to: $0)
+                commit()
+            }
+        )
     }
 
     private var logLevelBinding: Binding<LogLevel> {

@@ -231,9 +231,9 @@ sequenceDiagram
 
     N->>N: enterHint: generation plus one, mode hint
     N->>O: showHints empty panel plus palette
-    N-)AX: Task loadHints(generation): collect
-    AX-->>N: controls, text, menus, windows, apps
-    N->>N: stop if mode left hint or generation changed
+    N-)AX: Task loadHints(generation): collect, deadline = last refresh
+    AX-->>N: partial targets at each refresh, then the finished set
+    N->>N: stop if mode left hint, generation changed, or the user has typed
     N->>HC: assignCodes ranked then sliced
     N->>HL: layout labeled targets
     N->>O: refreshHints
@@ -244,6 +244,8 @@ sequenceDiagram
 ```
 
 `AccessibilityHintSource` reads the focused app on a background task: clickable roles and the menu bar get yellow labels; static text, nested menus, open windows, and installed apps are search-only. Web areas get `AXManualAccessibility` and a second child read, plus `AXLinkUIElements`. Frames that cover most of the window are dropped. If the focused app is Unmouse itself, the scan walks `NSAccessibility` on the main actor instead.
+
+The walk keeps publishing what it has found. `hint.refresh_ms` (default 500, 1000, 1500) is when those labels go on screen, and only if the query is still empty. The last value is the scan deadline, measured from when hint opened. `scan_settle_ms` sleeps inside that deadline after accessibility is turned on; it does not push the deadline out. A scan that finishes early updates the labels then, instead of waiting for the next time.
 
 `HintCoder` ranks targets (default, cancel, buttons, links, other window controls, then chrome / menu bar), boosts titles listed in `priority-words.txt`, and slices a mnemonic from the title (`Delete` → `d`, `Cancel` → `ca`, `search menu` → `sm`) using a fixed a–z alphabet. Single-character codes stay on real in-window controls; menu bar and traffic lights get two-or-more-character codes. Three-character codes appear only after digraphs are exhausted. `HintFuzzy` ranks a query with a subsequence score (spaces in the query are dropped); an exact hint code always wins. After three typed characters, the top nine hits get ⌘1–⌘9. `HintLayout` places the yellow bubbles. Space or Return activates the selected row; Control+Space or Control+Return right-clicks; alone Option moves there and enters free mode; alone Command opens the grid; Escape cancels.
 

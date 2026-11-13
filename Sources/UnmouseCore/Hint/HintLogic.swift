@@ -502,12 +502,22 @@ public struct HintState: Equatable, Sendable {
         applyCmdNumbers()
     }
 
+    /// Milestone label update. Skipped once the user has typed or moved the highlight, and when nothing new would appear on screen.
+    public func shouldRefreshLabels(with targets: [HintTarget]) -> Bool {
+        guard typed.isEmpty, selectedIndex < 0 else { return false }
+        let oldLabeled = Set(self.targets.filter { $0.showsLabel && !$0.code.isEmpty }.map(\.id))
+        let newLabeled = Set(targets.filter { $0.showsLabel && !$0.code.isEmpty }.map(\.id))
+        if oldLabeled != newLabeled { return true }
+        return self.targets.map(\.id) != targets.map(\.id)
+    }
+
     /// Swap in a new scan without dropping what the user has already typed.
-    public mutating func replaceTargets(_ targets: [HintTarget]) {
+    /// `scanned` stays false while a later milestone may still add targets.
+    public mutating func replaceTargets(_ targets: [HintTarget], scanned: Bool = true) {
         let query = typed
         let selected = selectedIndex
         self.targets = targets
-        scanned = true
+        self.scanned = scanned
         matches = Self.rank(targets: targets, query: query)
         if query.isEmpty || matches.isEmpty {
             selectedIndex = -1

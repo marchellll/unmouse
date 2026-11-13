@@ -333,6 +333,35 @@ struct HintTests {
         #expect(state.typed == "w")
         #expect(state.scanned)
         #expect(state.selectedTarget?.id == "wa")
+        #expect(!state.shouldRefreshLabels(with: state.targets))
+    }
+
+    @Test func refreshSkipsTypedAndUnchangedTargets() {
+        var state = HintState(targets: [
+            HintTarget(id: "ok", title: "OK", frame: CGRect(x: 0, y: 0, width: 40, height: 20), role: "AXButton"),
+        ], scanned: false)
+        let same = state.targets
+        let extra = same + [
+            HintTarget(id: "cancel", title: "Cancel", frame: CGRect(x: 50, y: 0, width: 40, height: 20), role: "AXButton"),
+        ]
+        #expect(!state.shouldRefreshLabels(with: same))
+        #expect(state.shouldRefreshLabels(with: extra))
+        state.selectedIndex = 0
+        #expect(!state.shouldRefreshLabels(with: extra))
+        state.selectedIndex = -1
+        state.replaceTargets(extra, scanned: false)
+        #expect(!state.scanned)
+        #expect(state.targets.map(\.id) == ["ok", "cancel"])
+        _ = state.typeCharacter("c")
+        #expect(!state.shouldRefreshLabels(with: same))
+        var labeled = HintState(targets: [
+            HintTarget(id: "ok", title: "OK", frame: CGRect(x: 0, y: 0, width: 40, height: 20), code: "o", role: "AXButton", showsLabel: true),
+            HintTarget(id: "cancel", title: "Cancel", frame: CGRect(x: 50, y: 0, width: 40, height: 20), code: "c", role: "AXButton", showsLabel: true),
+        ], scanned: false)
+        let grown = labeled.targets + [
+            HintTarget(id: "save", title: "Save", frame: CGRect(x: 0, y: 40, width: 40, height: 20), role: "AXButton", showsLabel: true),
+        ]
+        #expect(labeled.shouldRefreshLabels(with: grown))
     }
 
     @Test func emptyScanIsDistinctFromStillScanning() {

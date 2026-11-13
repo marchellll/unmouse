@@ -131,17 +131,19 @@ private struct HintPaletteView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
 
-            Divider().overlay(Color.white.opacity(0.12))
+            ZStack {
+                Divider().overlay(Color.white.opacity(0.12))
+                if !state.scanned {
+                    HintScanLine()
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 2)
 
-            if !state.scanned {
-                Text("Scanning…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color.white.opacity(0.5))
-                    .padding(12)
-            } else if state.targets.isEmpty {
-                Text("Nothing found")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.85))
+            if state.targets.isEmpty {
+                Text(state.scanned ? "Nothing found" : "Scanning…")
+                    .font(.system(size: state.scanned ? 13 : 12, weight: state.scanned ? .medium : .regular))
+                    .foregroundStyle(Color.white.opacity(state.scanned ? 0.85 : 0.5))
                     .padding(12)
             } else {
                 let rows = Array(state.matches.prefix(8))
@@ -203,5 +205,27 @@ private struct HintPaletteView: View {
         case .window: return "Raise"
         case .app: return "Launch"
         }
+    }
+}
+
+/// Indeterminate bar on the palette separator while the scan is still running.
+private struct HintScanLine: View {
+    private let loop = 1.1
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+            let phase = context.date.timeIntervalSinceReferenceDate
+                .truncatingRemainder(dividingBy: loop) / loop
+            GeometryReader { geo in
+                let width = geo.size.width
+                let bar = max(28, width * 0.22)
+                Capsule()
+                    .fill(Color.white.opacity(0.85))
+                    .frame(width: bar, height: 2)
+                    .offset(x: -bar + (width + bar) * phase)
+            }
+        }
+        .frame(height: 2)
+        .clipped()
     }
 }

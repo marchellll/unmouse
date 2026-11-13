@@ -51,6 +51,8 @@ final class NavigationModel {
     private var freeMoveIdle: TimeInterval = 0
     private let freeMoveGap: TimeInterval = 0.2
     private var hintLoadGeneration: UInt64 = 0
+    /// Installed/running apps for palette search. Filled on a background task; never blocks label milestones.
+    private var hintLaunches: [HintTarget] = []
 
     init(app: AppModel) {
         self.app = app
@@ -250,6 +252,7 @@ final class NavigationModel {
         gridState = nil
         hintState = HintState()
         hintBubbles = []
+        hintLaunches = []
         // Cursor screen first. The focused-window query waits on that app's main thread,
         // so it must not run here or a busy window freezes the palette.
         hintScreenFrame = screenForCursor().frame
@@ -951,51 +954,134 @@ final class NavigationModel {
     private func loadHints(generation: UInt64, primaryHeight: CGFloat) async {
         InputTrace.log("hint load start gen=\(generation)")
         let t0 = DispatchTime.now().uptimeNanoseconds
+        let refreshMs = app.config.hint.refreshMs
+        let deadline = t0 &+ UInt64(app.config.hint.scanBudgetMs) * 1_000_000
+        let buffer = HintScanBuffer()
         let source = AccessibilityHintSource(scanSettleMs: app.config.hint.scanSettleMs)
+        // Label milestones run from t0. Never block them on installed-app listing or AX window lookup.
+        let collectTask = Task.detached(priority: .userInitiated) {
+            await source.collect(into: buffer, deadline: deadline)
+        }
         let windowTask = Task.detached {
             Self.focusedWindowAppKitFrame(primaryHeight: primaryHeight)
         }
-        let launches = await source.launchTargets()
-        guard mode == .hint, generation == hintLoadGeneration else { return }
-        if !launches.isEmpty {
-            publishHints(launches, generation: generation, since: t0, phase: "launches")
+        Task {
+            let launches = await source.launchTargets()
+            guard mode == .hint, generation == hintLoadGeneration else { return }
+            hintLaunches = launches
+            InputTrace.log("hint launches ready n=\(launches.count)")
         }
-        if let win = await windowTask.value, mode == .hint, generation == hintLoadGeneration {
+        Task {
+            guard let win = await windowTask.value, mode == .hint, generation == hintLoadGeneration else { return }
             hintState.paletteLayout = HintPalettePlacement.resolve(window: win, screen: hintScreenFrame)
             InputTrace.log("hint palette layout \(hintState.paletteLayout) win=\(Int(win.width))x\(Int(win.height))")
             app.overlayController?.refreshHints()
         }
-        let controls = await source.collect()
-        let scanMs = (DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
-        guard mode == .hint, generation == hintLoadGeneration else {
-            InputTrace.log("hint load stale gen=\(generation) current=\(hintLoadGeneration) mode=\(mode.rawValue) scanMs=\(scanMs) n=\(controls.count)")
-            return
+        var finished = false
+        for (index, ms) in refreshMs.enumerated() {
+            let mark = t0 &+ UInt64(ms) * 1_000_000
+            finished = await Self.waitUntil(mark, or: collectTask) || buffer.isDone
+            guard mode == .hint, generation == hintLoadGeneration else {
+                collectTask.cancel()
+                return
+            }
+            let isLast = index == refreshMs.count - 1
+            let elapsed = (DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
+            InputTrace.log(
+                "hint milestone \(ms) elapsed=\(elapsed) finished=\(finished) buffer=\(buffer.snapshot().count)"
+            )
+            publishScanSnapshot(
+                buffer: buffer, generation: generation, since: t0,
+                phase: finished ? "ready" : "refresh \(ms)", scanned: finished || isLast
+            )
+            if finished { break }
+            if isLast {
+                _ = await collectTask.value
+                guard mode == .hint, generation == hintLoadGeneration else { return }
+                publishScanSnapshot(
+                    buffer: buffer, generation: generation, since: t0, phase: "ready", scanned: true
+                )
+            }
         }
-        InputTrace.log("hint load scan done n=\(controls.count) launches=\(launches.count) scanMs=\(scanMs)")
+        let scanMs = (DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000
+        InputTrace.log("hint load scan done launches=\(hintLaunches.count) scanMs=\(scanMs) typed=\(!hintState.typed.isEmpty)")
+    }
+
+    /// Labels already on screen stay put once the user has typed.
+    private func publishScanSnapshot(
+        buffer: HintScanBuffer,
+        generation: UInt64,
+        since t0: UInt64,
+        phase: String,
+        scanned: Bool
+    ) {
+        guard mode == .hint, generation == hintLoadGeneration else { return }
         var seen = Set<String>()
         var merged: [HintTarget] = []
-        for target in controls where seen.insert(target.id).inserted {
+        for target in buffer.snapshot() where seen.insert(target.id).inserted {
             merged.append(target)
         }
-        for target in launches where seen.insert(target.id).inserted {
+        for target in hintLaunches where seen.insert(target.id).inserted {
             merged.append(target)
         }
-        publishHints(merged, generation: generation, since: t0, phase: "ready")
+        guard !merged.isEmpty || scanned else {
+            InputTrace.log("hint load \(phase) skip empty buffer=\(buffer.snapshot().count) scanned=\(scanned)")
+            return
+        }
+        let newLabeled = labeledControlIDs(in: merged).subtracting(labeledControlIDs(in: hintState.targets))
+        let refresh = !newLabeled.isEmpty || hintState.shouldRefreshLabels(with: merged)
+        if refresh {
+            publishHints(merged, generation: generation, since: t0, phase: phase, scanned: scanned)
+        } else if scanned, !hintState.scanned {
+            hintState.scanned = true
+            app.overlayController?.refreshHints()
+            InputTrace.log("hint load \(phase) skip unchanged scanned=true labeled=0 new=\(newLabeled.count)")
+        } else {
+            InputTrace.log("hint load \(phase) skip unchanged merged=\(merged.count) new=\(newLabeled.count)")
+        }
+    }
+
+    private func labeledControlIDs(in targets: [HintTarget]) -> Set<String> {
+        Set(targets.filter(\.showsLabel).map(\.id))
+    }
+
+    /// True when `task` finishes before `mark`. ponytail: run off MainActor — awaiting collect here pinned loadHints for the full scan budget.
+    private static func waitUntil(_ mark: UInt64, or task: Task<[HintTarget], Never>) async -> Bool {
+        await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let gate = WaitGate()
+            Task.detached(priority: .utility) {
+                let now = DispatchTime.now().uptimeNanoseconds
+                if mark > now {
+                    try? await Task.sleep(nanoseconds: mark - now)
+                }
+                gate.finish(false, cont)
+            }
+            Task.detached(priority: .utility) {
+                _ = await task.value
+                gate.finish(true, cont)
+            }
+        }
     }
 
     /// Codes the rows and keeps the query already typed. Safe to call again when the control walk finishes.
-    private func publishHints(_ targets: [HintTarget], generation: UInt64, since t0: UInt64, phase: String) {
+    private func publishHints(
+        _ targets: [HintTarget],
+        generation: UInt64,
+        since t0: UInt64,
+        phase: String,
+        scanned: Bool = true
+    ) {
         guard mode == .hint, generation == hintLoadGeneration else { return }
         let coded = HintCoder.assignCodes(targets: targets)
         let layout = hintState.paletteLayout
         let cmdHeld = hintState.commandHeld
-        hintState.replaceTargets(coded)
+        hintState.replaceTargets(coded, scanned: scanned)
         hintState.paletteLayout = layout
         hintState.setCommandHeld(cmdHeld)
         rebuildHintBubbles()
         let labeled = coded.filter(\.showsLabel).count
         InputTrace.log(
-            "hint load \(phase) labeled=\(labeled) bubbles=\(hintBubbles.count) n=\(coded.count) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
+            "hint load \(phase) labeled=\(labeled) bubbles=\(hintBubbles.count) n=\(coded.count) scanned=\(scanned) totalMs=\((DispatchTime.now().uptimeNanoseconds - t0) / 1_000_000)"
         )
         app.overlayController?.showHints()
         app.overlayController?.refreshHints()
@@ -1148,5 +1234,19 @@ final class NavigationModel {
             exitToIdle(keepDrag: dragging)
             onTutorial?(.cancelled)
         }
+    }
+}
+
+/// First `waitUntil` resume wins; the loser must not call continuation twice.
+private final class WaitGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private nonisolated(unsafe) var done = false
+
+    nonisolated func finish(_ value: Bool, _ cont: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        cont.resume(returning: value)
     }
 }
