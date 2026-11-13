@@ -132,10 +132,15 @@ private struct HintPaletteView: View {
 
             Divider().overlay(Color.white.opacity(0.12))
 
-            if state.targets.isEmpty {
+            if !state.scanned {
                 Text("Scanning…")
                     .font(.system(size: 12))
                     .foregroundStyle(Color.white.opacity(0.5))
+                    .padding(12)
+            } else if state.targets.isEmpty {
+                Text("Nothing found")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.85))
                     .padding(12)
             } else {
                 let rows = Array(state.matches.prefix(8))

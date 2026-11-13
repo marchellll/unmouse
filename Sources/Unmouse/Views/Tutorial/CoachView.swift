@@ -106,8 +106,11 @@ struct CoachView: View {
         let cancel = label(b.hint.cancel)
         let state = model.nav.hintState
 
-        if state.targets.isEmpty {
+        if !state.scanned {
             return ["Scanning controls…"]
+        }
+        if state.targets.isEmpty {
+            return ["Nothing found"]
         }
         if let selected = state.selectedTarget {
             let name = selected.title.isEmpty ? selected.code : selected.title

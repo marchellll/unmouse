@@ -320,6 +320,20 @@ struct HintTests {
         #expect(words == Set(["ok", "save"]))
     }
 
+    @Test func emptyScanIsDistinctFromStillScanning() {
+        let scanning = HintState()
+        #expect(!scanning.scanned)
+        #expect(scanning.targets.isEmpty)
+        let empty = HintState(scanned: true)
+        #expect(empty.scanned)
+        #expect(empty.targets.isEmpty)
+        let found = HintState(targets: [
+            HintTarget(id: "b", title: "OK", frame: CGRect(x: 0, y: 0, width: 40, height: 20), role: "AXButton", action: .click, showsLabel: true),
+        ], scanned: true)
+        #expect(found.scanned)
+        #expect(found.targets.count == 1)
+    }
+
     @Test func paletteCycleLeavesAttachThenCyclesFreestanding() {
         var state = HintState()
         #expect(state.paletteLayout == .freestanding(.semiBottom))

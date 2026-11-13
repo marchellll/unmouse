@@ -487,8 +487,10 @@ public struct HintState: Equatable, Sendable {
     public var paletteLayout: HintPaletteLayout
     /// Holding ⌘ shows ⌘1–9 on bubbles/palette even before the query is long enough.
     public var commandHeld: Bool
+    /// The accessibility walk finished (or hit its time budget). Empty targets before this are still scanning.
+    public var scanned: Bool
 
-    public init(targets: [HintTarget] = []) {
+    public init(targets: [HintTarget] = [], scanned: Bool = false) {
         self.targets = targets
         self.typed = ""
         // No auto-select on empty query — Tab/↑↓ pick a row; Space with none cancels.
@@ -496,6 +498,7 @@ public struct HintState: Equatable, Sendable {
         self.matches = Self.rank(targets: targets, query: "")
         self.paletteLayout = .freestanding(.semiBottom)
         self.commandHeld = false
+        self.scanned = scanned
         applyCmdNumbers()
     }
 

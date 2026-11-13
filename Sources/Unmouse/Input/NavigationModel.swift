@@ -930,7 +930,7 @@ final class NavigationModel {
         let codeMs = (DispatchTime.now().uptimeNanoseconds - t1) / 1_000_000
         let layout = hintState.paletteLayout
         let cmdHeld = hintState.commandHeld
-        hintState = HintState(targets: coded)
+        hintState = HintState(targets: coded, scanned: true)
         hintState.paletteLayout = layout
         hintState.setCommandHeld(cmdHeld)
         let screen = hintScreenFrame.isEmpty ? screenForFocusedWindow().frame : hintScreenFrame
