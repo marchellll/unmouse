@@ -100,11 +100,42 @@ struct ConfigTests {
 
     @Test func legacyHintCharsIgnored() throws {
         var base = try ConfigIO.encode(AppConfig.default)
-        base += "\n[hint]\nchars = \"qwfgjluy;r\"\n"
+        if let range = base.range(of: "[hint]") {
+            base.insert(contentsOf: "\nchars = \"qwfgjluy;r\"", at: range.upperBound)
+        } else {
+            base += "\n[hint]\nchars = \"qwfgjluy;r\"\n"
+        }
         let decoded = try ConfigIO.decode(from: base)
-        #expect(decoded.hint == HintConfig())
+        #expect(decoded.hint.scanSettleMs == 200)
         let roundTrip = try ConfigIO.encode(decoded)
-        #expect(!roundTrip.contains("[hint]"))
+        #expect(!roundTrip.contains("qwfgjluy"))
+        #expect(roundTrip.contains("scan_settle_ms"))
+    }
+
+    @Test func hintSettleAndHighlightRoundTrip() throws {
+        var config = AppConfig.default
+        config.hint.scanSettleMs = 400
+        config.colors.hintHighlight = "#FF00AA"
+        let decoded = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(decoded.hint.scanSettleMs == 400)
+        #expect(decoded.colors.hintHighlight == "#FF00AA")
+    }
+
+    @Test func hintSettleDefaultsWhenMissing() throws {
+        let text = try ConfigIO.encode(AppConfig.default)
+            .replacingOccurrences(of: "scan_settle_ms", with: "ignored_settle")
+            .replacingOccurrences(of: "hint_highlight", with: "ignored_highlight")
+        let decoded = try ConfigIO.decode(from: text)
+        #expect(decoded.hint.scanSettleMs == 200)
+        #expect(decoded.colors.hintHighlight == "#34C759")
+    }
+
+    @Test func hintSettleClamps() throws {
+        var config = AppConfig.default
+        config.hint.scanSettleMs = 9_000
+        let decoded = try ConfigIO.decode(from: try ConfigIO.encode(config))
+        #expect(decoded.hint.scanSettleMs == 2_000)
+        #expect(HintConfig(scanSettleMs: -5).scanSettleMs == 0)
     }
 
     @Test func scrollReverseRoundTrips() throws {

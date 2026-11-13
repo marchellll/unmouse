@@ -4,6 +4,13 @@ import CoreGraphics
 import UnmouseCore
 
 struct AccessibilityHintSource: HintSource {
+    /// Wait after `AXManualAccessibility` before walking the focused window.
+    var scanSettleMs: Int
+
+    init(scanSettleMs: Int = 200) {
+        self.scanSettleMs = scanSettleMs
+    }
+
     /// Installed and running apps. No accessibility calls, so a busy front app cannot delay launching WhatsApp.
     func launchTargets() async -> [HintTarget] {
         let snap = await MainActor.run { Self.snapshot() }
@@ -27,11 +34,12 @@ struct AccessibilityHintSource: HintSource {
 
     func collect() async -> [HintTarget] {
         // Snapshot AppKit on main — NSWorkspace / NSScreen are not safe in Task.detached.
-        let deadline = Self.scanDeadline()
+        let settleMs = min(2_000, max(0, scanSettleMs))
+        let deadline = Self.scanDeadline(extraMs: settleMs)
         let snap = await MainActor.run { Self.snapshot() }
         InputTrace.log("hint scan snap apps=\(snap.apps.count) primaryH=\(Int(snap.primaryHeight))")
         let outside = await Task.detached(priority: .userInitiated) {
-            Self.scanOtherApp(snap: snap, deadline: deadline)
+            Self.scanOtherApp(snap: snap, deadline: deadline, settleMs: settleMs)
         }.value
         switch outside {
         case .targets(let targets):
@@ -63,8 +71,9 @@ struct AccessibilityHintSource: HintSource {
     /// ponytail: checked between elements. One AX call can still spend its 0.25s messaging timeout past the budget.
     private static let scanBudgetNanos: UInt64 = 1_000_000_000
 
-    private static func scanDeadline() -> UInt64 {
-        DispatchTime.now().uptimeNanoseconds &+ scanBudgetNanos
+    private static func scanDeadline(extraMs: Int = 0) -> UInt64 {
+        let extra = UInt64(max(0, extraMs)) * 1_000_000
+        return DispatchTime.now().uptimeNanoseconds &+ scanBudgetNanos &+ extra
     }
 
     private static func timedOut(_ deadline: UInt64) -> Bool {
@@ -126,7 +135,7 @@ struct AccessibilityHintSource: HintSource {
         return Snapshot(primaryHeight: primaryH, apps: apps)
     }
 
-    nonisolated private static func scanOtherApp(snap: Snapshot, deadline: UInt64) -> Scan {
+    nonisolated private static func scanOtherApp(snap: Snapshot, deadline: UInt64, settleMs: Int) -> Scan {
         let tAll = DispatchTime.now().uptimeNanoseconds
         guard AXIsProcessTrusted() else {
             InputTrace.log("hint scan abort — AX not trusted")
@@ -151,6 +160,11 @@ struct AccessibilityHintSource: HintSource {
         prime(appEl)
         AXUIElementSetAttributeValue(appEl, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
         AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        // ponytail: Electron fills the AX tree after those flags. 200ms covers Obsidian's chrome; raise scan_settle_ms if a page is still thin.
+        if settleMs > 0 {
+            InputTrace.log("hint scan settle \(settleMs)ms")
+            Thread.sleep(forTimeInterval: Double(settleMs) / 1000)
+        }
 
         var windowRef: CFTypeRef?
         let window: AXUIElement?

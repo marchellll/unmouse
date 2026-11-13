@@ -40,6 +40,9 @@ halo_attention_period = 1.4  # seconds
 halo_attention_scale = 3.6
 halo_offset = [25.0, -25.0]  # cartesian points from the pointer; +x right, +y up
 
+[hint]
+scan_settle_ms = 200   # pause (ms) after enabling accessibility, before reading the window. Electron apps such as Obsidian need this. 0 reads immediately.
+
 [colors]
 background = "#00000000"
 line = "#FFFFFF"
@@ -52,6 +55,7 @@ free_dot_blend = "exclusion"   # exclusion | difference | normal | colorBurn | p
 hint_fill = "#111111EE"
 hint_text = "#FFFFFF"
 hint_line = "#FFFFFFCC"
+hint_highlight = "#34C759"  # box around the selected hint
 
 # Shortcuts are case-insensitive.
 # One key, or modifiers plus one key joined by +.

@@ -35,6 +35,23 @@ struct HeldKeysTests {
         #expect(deduper.shouldHandle(token: "h", down: true, nowNanos: 1_000))
         #expect(!deduper.shouldHandle(token: "h", down: true, nowNanos: 2_000))
         #expect(deduper.shouldHandle(token: "h", down: true, nowNanos: 100_000_000))
+        // Fallback carries the original HID stamp, which is earlier than the tap.
+        #expect(deduper.shouldHandle(token: "space", down: true, nowNanos: 5_000_000))
+        #expect(!deduper.shouldHandle(token: "space", down: true, nowNanos: 4_000_000))
+    }
+
+    @Test func differentFlagsRetryUnlessTheFirstCopySwallowed() {
+        let deduper = KeyDeduper(windowMillis: 50)
+        #expect(deduper.shouldHandle(token: "space", down: true, nowNanos: 1_000, flags: 1))
+        #expect(!deduper.shouldHandle(token: "space", down: true, nowNanos: 2_000, flags: 3))
+        #expect(!deduper.shouldRetry(token: "space", down: true, flags: 1))
+        #expect(deduper.shouldRetry(token: "space", down: true, flags: 3))
+        #expect(!deduper.shouldRetry(token: "space", down: true, flags: 3))
+
+        #expect(deduper.shouldHandle(token: "f", down: true, nowNanos: 1_000, flags: 1))
+        deduper.setSwallow(token: "f", down: true, swallow: true)
+        #expect(!deduper.shouldHandle(token: "f", down: true, nowNanos: 2_000, flags: 3))
+        #expect(!deduper.shouldRetry(token: "f", down: true, flags: 3))
     }
 
     @Test func duplicateReplaysSwallowDecision() {

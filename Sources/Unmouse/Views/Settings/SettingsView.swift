@@ -415,10 +415,20 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var hintPane: some View {
+        Section("Scan") {
+            SteppedIntRow(
+                "Settle",
+                unit: "ms",
+                value: hintSettleBinding,
+                range: 0...2_000,
+                hint: "Pause after asking the front app to expose its controls, before the window is read. Electron apps such as Obsidian fill in the tree during this pause. 0 reads immediately."
+            )
+        }
         Section("Colors") {
             HexColorPicker(title: "Fill", hint: "Fill of each hint bubble.", hex: colorHex(\.hintFill), onChange: commit)
             HexColorPicker(title: "Text", hex: colorHex(\.hintText), onChange: commit)
             HexColorPicker(title: "Line", hint: "Border of each hint bubble.", hex: colorHex(\.hintLine), onChange: commit)
+            HexColorPicker(title: "Highlight", hint: "Box around the selected hint. The fill is a lighter copy of this color.", hex: colorHex(\.hintHighlight), onChange: commit)
         }
         Section("Shortcuts") {
             bind("Left click", hintBind(\.leftClick), hint: "Activates the selected result (left click, menu, window, or app) and leaves hint mode.")
@@ -481,6 +491,10 @@ struct SettingsView: View {
 
     private var modeTimeoutBinding: Binding<Double> {
         configBind(\.input.modeTimeoutS) { $0.clamped(to: 0...600) }
+    }
+
+    private var hintSettleBinding: Binding<Int> {
+        configBind(\.hint.scanSettleMs) { $0.clamped(to: 0...2_000) }
     }
 
     private var logLevelBinding: Binding<LogLevel> {

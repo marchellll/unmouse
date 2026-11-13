@@ -18,8 +18,9 @@ struct HintOverlayView: View {
                     if let highlight = model.nav.hintState.highlightFrame {
                         let local = Self.toLocal(highlight, screen: screen)
                         let path = Path(roundedRect: local, cornerRadius: 3)
-                        context.fill(path, with: .color(Color.green.opacity(0.35)))
-                        context.stroke(path, with: .color(Color.green.opacity(0.9)), lineWidth: 2)
+                        let mark = Color(hex: model.config.colors.hintHighlight) ?? Color(red: 0.204, green: 0.780, blue: 0.349)
+                        context.fill(path, with: .color(mark.opacity(0.35)))
+                        context.stroke(path, with: .color(mark.opacity(0.9)), lineWidth: 2)
                     }
 
                     let hint = model.nav.hintState

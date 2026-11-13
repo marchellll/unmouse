@@ -677,7 +677,7 @@ public struct HintState: Equatable, Sendable {
         return match.target
     }
 
-    /// Selected row's green box.
+    /// Selected row's highlight box.
     public var highlightFrame: CGRect? {
         guard let match = selectedMatch else { return nil }
         switch match.target.action {

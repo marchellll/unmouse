@@ -315,17 +315,41 @@ final class NavigationModel {
         }
     }
 
+    /// ⌘ ⌥ ⌃ ⇧ only. Side bits differ between sources and must not look like a new chord.
+    private static func chordBits(_ flags: CGEventFlags) -> UInt64 {
+        flags.intersection([.maskCommand, .maskAlternate, .maskControl, .maskShift]).rawValue
+    }
+
     private func handleKey(
         kind: KeyKind, flags: CGEventFlags, down: Bool, alone: Bool,
-        source: InputSource, eventNanos: UInt64
+        source: InputSource, eventNanos: UInt64, deferred: Bool = false
     ) -> Bool {
         let token = KeyCodes.token(for: kind)
-        let src = source == .tap ? "tap" : "kar"
+        let src = source == .tap ? "tap" : (deferred ? "kar-late" : "kar")
         InputTrace.log(
             "nav \(src) \(token) \(down ? "↓" : "↑") alone=\(alone) mode=\(mode.rawValue) flags=\(InputTrace.flags(flags))"
         )
         lastFlags = flags
         if mode != .idle { bumpModeActivity() }
+
+        // Karabiner has no flags of its own. Acting on it first, then dropping the tap's
+        // copy, misses every chord whose modifiers were not in lastFlags yet (⌘⇧Space,
+        // ⌃Space, ⌘-click, ⌘-scroll). The tap decides. Karabiner acts only if the tap never arrives.
+        // ponytail: 30ms is the ceiling when the event tap is blocked (secure input). A shorter
+        // wait double-fires when the tap is merely late. The deduper cancels the fallback.
+        if source == .karabiner, !deferred, !kind.isModifier {
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(30)) { [weak self] in
+                guard let self else { return }
+                guard self.motion.deduper.shouldHandle(
+                    token: token, down: down, nowNanos: eventNanos, flags: Self.chordBits(self.lastFlags)
+                ) else { return }
+                _ = self.handleKey(
+                    kind: kind, flags: self.lastFlags, down: down, alone: alone,
+                    source: .karabiner, eventNanos: eventNanos, deferred: true
+                )
+            }
+            return false
+        }
 
         if kind.isModifier {
             if source == .karabiner {
@@ -346,6 +370,22 @@ final class NavigationModel {
             InputTrace.log("nav result \(token) \(down ? "↓" : "↑") swallow=\(swallow) mode=\(mode.rawValue)")
             return swallow
         }
+
+        // Claim this copy before any mode change. Otherwise a Karabiner fallback runs too,
+        // and a chord decided with stale flags exits the mode before the tap's flags are seen.
+        let holdAction = swallowUpToken == token
+        let bits = Self.chordBits(flags)
+        if !deferred, !motion.deduper.shouldHandle(token: token, down: down, nowNanos: eventNanos, flags: bits) {
+            let retry = source == .tap && !holdAction
+                && motion.deduper.shouldRetry(token: token, down: down, flags: bits)
+            if !retry {
+                let swallow = holdAction || motion.deduper.swallowed(token: token, down: down) || mode != .idle
+                InputTrace.log("nav dedupe skip \(token) \(down ? "↓" : "↑") swallow=\(swallow)")
+                return swallow
+            }
+            InputTrace.log("nav dedupe retry \(token) \(down ? "↓" : "↑") flags differ")
+        }
+        if holdAction, !down { swallowUpToken = nil }
 
         // Hint's shortcut is usually a chord (⌘⇧Space). Do not hand that key to the focused app.
         let hintShortcut = bindings.global.hintMode.matches(key: kind, flags: flags, alone: false)
@@ -380,17 +420,6 @@ final class NavigationModel {
                 nowNanos: eventNanos
             )
         }
-        let holdAction = swallowUpToken == token
-        if holdAction, !down { swallowUpToken = nil }
-        guard motion.deduper.shouldHandle(token: token, down: down, nowNanos: eventNanos) else {
-            let swallow = holdAction || motion.deduper.swallowed(token: token, down: down) || mode != .idle
-            InputTrace.log("nav dedupe skip \(token) \(down ? "↓" : "↑") swallow=\(swallow)")
-            return swallow
-        }
-        if mode != .idle {
-            // Handler may return to idle before the event-tap copy of this key is delivered.
-            motion.deduper.setSwallow(token: token, down: down, swallow: true)
-        }
         let swallow: Bool
         if holdAction {
             swallow = true
@@ -402,9 +431,12 @@ final class NavigationModel {
                 swallowUpToken = token
             }
         }
-        motion.deduper.setSwallow(token: token, down: down, swallow: swallow)
-        InputTrace.log("nav result \(token) \(down ? "↓" : "↑") swallow=\(swallow) mode=\(mode.rawValue)")
-        return swallow
+        // While a mode is active the event must not reach the focused app, even when this
+        // key is not one of ours. A swallowed chord still records that after the mode exits.
+        let deliver = swallow || mode != .idle
+        motion.deduper.setSwallow(token: token, down: down, swallow: deliver)
+        InputTrace.log("nav result \(token) \(down ? "↓" : "↑") swallow=\(deliver) mode=\(mode.rawValue)")
+        return deliver
     }
 
     private func updateSpeedModifierFlags(kind: KeyKind, down: Bool, source: InputSource, nowNanos: UInt64) {
@@ -919,7 +951,7 @@ final class NavigationModel {
     private func loadHints(generation: UInt64, primaryHeight: CGFloat) async {
         InputTrace.log("hint load start gen=\(generation)")
         let t0 = DispatchTime.now().uptimeNanoseconds
-        let source = AccessibilityHintSource()
+        let source = AccessibilityHintSource(scanSettleMs: app.config.hint.scanSettleMs)
         let windowTask = Task.detached {
             Self.focusedWindowAppKitFrame(primaryHeight: primaryHeight)
         }

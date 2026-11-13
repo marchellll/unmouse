@@ -308,19 +308,33 @@ public struct FreeConfig: Codable, Sendable, Equatable {
 
 /// Hint settings. `chars` used to live here; labels now use a fixed a–z alphabet.
 public struct HintConfig: Codable, Sendable, Equatable {
-    private enum CodingKeys: String, CodingKey { case chars }
+    /// Pause after enabling accessibility, before reading the focused window.
+    /// Electron builds that tree during the pause. `0` reads immediately.
+    public var scanSettleMs: Int
 
-    public init() {}
+    private enum CodingKeys: String, CodingKey {
+        case chars
+        case scanSettleMs = "scan_settle_ms"
+    }
+
+    public init(scanSettleMs: Int = 200) {
+        self.scanSettleMs = Self.clampSettle(scanSettleMs)
+    }
 
     public init(from decoder: Decoder) throws {
         // Legacy configs may still have `chars = "…"` — ignore.
         let c = try decoder.container(keyedBy: CodingKeys.self)
         _ = try c.decodeIfPresent(String.self, forKey: .chars)
+        scanSettleMs = Self.clampSettle(try c.decodeIfPresent(Int.self, forKey: .scanSettleMs) ?? 200)
     }
 
     public func encode(to encoder: Encoder) throws {
-        // No fields written; omit legacy `chars`.
-        _ = encoder.container(keyedBy: CodingKeys.self)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(scanSettleMs, forKey: .scanSettleMs)
+    }
+
+    private static func clampSettle(_ ms: Int) -> Int {
+        min(2_000, max(0, ms))
     }
 }
 
@@ -337,6 +351,8 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
     public var hintFill: String
     public var hintText: String
     public var hintLine: String
+    /// Box around the selected hint. Fill is drawn lighter than this stroke.
+    public var hintHighlight: String
 
     enum CodingKeys: String, CodingKey {
         case background, line, label, highlight
@@ -347,6 +363,7 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         case hintFill = "hint_fill"
         case hintText = "hint_text"
         case hintLine = "hint_line"
+        case hintHighlight = "hint_highlight"
     }
 
     public init(
@@ -360,7 +377,8 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         freeDotBlend: GridBlend = .exclusion,
         hintFill: String = "#111111EE",
         hintText: String = "#FFFFFF",
-        hintLine: String = "#FFFFFFCC"
+        hintLine: String = "#FFFFFFCC",
+        hintHighlight: String = "#34C759"
     ) {
         self.background = background
         self.line = line
@@ -373,6 +391,7 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         self.hintFill = hintFill
         self.hintText = hintText
         self.hintLine = hintLine
+        self.hintHighlight = hintHighlight
     }
 
     public init(from decoder: Decoder) throws {
@@ -388,6 +407,7 @@ public struct ColorsConfig: Codable, Sendable, Equatable {
         hintFill = try c.decodeIfPresent(String.self, forKey: .hintFill) ?? "#111111EE"
         hintText = try c.decodeIfPresent(String.self, forKey: .hintText) ?? "#FFFFFF"
         hintLine = try c.decodeIfPresent(String.self, forKey: .hintLine) ?? "#FFFFFFCC"
+        hintHighlight = try c.decodeIfPresent(String.self, forKey: .hintHighlight) ?? "#34C759"
     }
 }
 

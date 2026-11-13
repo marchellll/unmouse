@@ -73,6 +73,7 @@ public final class KeyDeduper: @unchecked Sendable {
     private struct Seen {
         var nanos: UInt64
         var swallow: Bool
+        var flags: UInt64
     }
 
     private let mutex: Mutex<[String: Seen]>
@@ -84,15 +85,32 @@ public final class KeyDeduper: @unchecked Sendable {
     }
 
     /// Returns true if this event should be handled (first of a pair).
-    public func shouldHandle(token: String, down: Bool, nowNanos: UInt64) -> Bool {
+    /// A later callback with an earlier stamp still counts as the same pair.
+    /// Karabiner's fallback runs after the tap, but its stamp is the original HID time.
+    public func shouldHandle(token: String, down: Bool, nowNanos: UInt64, flags: UInt64 = 0) -> Bool {
         let key = "\(token):\(down)"
         return mutex.withLock { map in
-            if let last = map[key], nowNanos &- last.nanos < windowNanos {
+            if let last = map[key], Self.gap(nowNanos, last.nanos) < windowNanos {
                 return false
             }
-            map[key] = Seen(nanos: nowNanos, swallow: false)
+            map[key] = Seen(nanos: nowNanos, swallow: false, flags: flags)
             return true
         }
+    }
+
+    /// The first copy did not swallow, and this copy's modifiers are different.
+    /// Used when the event tap arrives after a decision made with stale flags.
+    public func shouldRetry(token: String, down: Bool, flags: UInt64) -> Bool {
+        let key = "\(token):\(down)"
+        return mutex.withLock { map in
+            guard let seen = map[key], !seen.swallow, seen.flags != flags else { return false }
+            map[key]?.flags = flags
+            return true
+        }
+    }
+
+    private static func gap(_ a: UInt64, _ b: UInt64) -> UInt64 {
+        a >= b ? a - b : b - a
     }
 
     /// Record whether the winning event was swallowed. The other source must replay that,
