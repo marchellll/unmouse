@@ -60,7 +60,7 @@ struct HintOverlayView: View {
 
                 // ponytail: fixed half-size for clamp — real height varies a bit with row count.
                 HintPaletteView(model: model)
-                    .frame(width: HintPalettePlacement.paletteSize.width)
+                    .frame(width: HintPalettePlacement.paletteSize.width, height: HintPalettePlacement.paletteSize.height, alignment: .top)
                     .position(Self.paletteCenter(state: model.nav.hintState, screen: screen, geo: geo.size))
             }
         }
@@ -134,11 +134,11 @@ private struct HintPaletteView: View {
             ZStack {
                 Divider().overlay(Color.white.opacity(0.12))
                 if !state.scanned {
-                    HintScanLine()
+                    HintScanLine(refreshMs: model.config.hint.refreshMs)
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 2)
+            .frame(height: 6)
 
             if state.targets.isEmpty {
                 Text(state.scanned ? "Nothing found" : "Scanning…")
@@ -208,24 +208,54 @@ private struct HintPaletteView: View {
     }
 }
 
-/// Indeterminate bar on the palette separator while the scan is still running.
+/// Determinate scan progress on the palette separator while the scan is still running.
+/// Left = 0 ms, right = timeout (last `refresh_ms`). Intermediate `refresh_ms` values
+/// are drawn as dots along the line.
 private struct HintScanLine: View {
-    private let loop = 1.1
+    let refreshMs: [Int]
+
+    @State private var start: Date?
+
+    private var timeoutMs: Double { Double(max(1, refreshMs.last ?? 1500)) }
+
+    private var dotPositions: [Double] {
+        let t = timeoutMs
+        var seen = Set<Int>()
+        var out: [Double] = []
+        for ms in refreshMs {
+            guard ms > 0, Double(ms) < t else { continue }
+            let key = Int((Double(ms) / t) * 1000)
+            guard seen.insert(key).inserted else { continue }
+            out.append(Double(ms) / t)
+        }
+        return out
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let phase = context.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: loop) / loop
             GeometryReader { geo in
-                let width = geo.size.width
-                let bar = max(28, width * 0.22)
-                Capsule()
-                    .fill(Color.white.opacity(0.85))
-                    .frame(width: bar, height: 2)
-                    .offset(x: -bar + (width + bar) * phase)
+                let now = context.date
+                let s = start ?? now
+                let elapsed = now.timeIntervalSince(s) * 1000.0
+                let progress = min(1.0, max(0.0, elapsed / timeoutMs))
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(height: 2)
+                    Capsule()
+                        .fill(Color.white.opacity(0.85))
+                        .frame(width: max(0, geo.size.width * progress), height: 2)
+                    ForEach(Array(dotPositions.enumerated()), id: \.offset) { _, pos in
+                        Circle()
+                            .fill(Color.white.opacity(0.9))
+                            .frame(width: 4, height: 4)
+                            .offset(x: geo.size.width * pos - 2, y: -1)
+                    }
+                }
+                .frame(height: 6, alignment: .center)
             }
         }
-        .frame(height: 2)
-        .clipped()
+        .onAppear { if start == nil { start = Date() } }
+        .frame(height: 6)
     }
 }

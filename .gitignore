@@ -32,3 +32,5 @@ signing.env
 
 
 tmp/
+
+.opencode/index/
